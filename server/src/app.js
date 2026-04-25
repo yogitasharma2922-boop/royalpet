@@ -1,0 +1,62 @@
+﻿const path = require("path");
+const fs = require("fs");
+const express = require("express");
+
+const env = require("./config/env");
+const requestLogger = require("./middleware/requestLogger");
+const { securityMiddleware } = require("./middleware/security");
+const { apiLimiter } = require("./middleware/rateLimit");
+const errorHandler = require("./middleware/errorHandler");
+
+const authRoutes = require("./routes/authRoutes");
+const userRoutes = require("./routes/userRoutes");
+const meRoutes = require("./routes/meRoutes");
+const treatmentRoutes = require("./routes/treatmentRoutes");
+const inventoryRoutes = require("./routes/inventoryRoutes");
+const resourceRoutes = require("./routes/resourceRoutes");
+const petRoutes = require("./routes/petRoutes");
+const uploadRoutes = require("./routes/uploadRoutes");
+const healthRoutes = require("./routes/healthRoutes");
+const adminRoutes = require("./routes/adminRoutes");
+
+const app = express();
+
+app.use(securityMiddleware);
+app.use(requestLogger);
+app.use(apiLimiter);
+app.use(express.text({ type: ["text/*", "application/csv"], limit: "2mb" }));
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: false }));
+
+app.use("/uploads", express.static(env.UPLOAD_DIR));
+
+app.use("/api/health", healthRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/me", meRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/treatments", treatmentRoutes);
+app.use("/api/inventory", inventoryRoutes);
+app.use("/api/pets", petRoutes);
+app.use("/api/uploads", uploadRoutes);
+app.use("/api", adminRoutes);
+app.use("/api", resourceRoutes);
+
+// Serve built client if available
+const clientDist = path.resolve(__dirname, "..", "..", "client", "dist");
+const clientIndex = path.join(clientDist, "index.html");
+const hasClient = fs.existsSync(clientIndex);
+
+if (hasClient) {
+  app.use(express.static(clientDist));
+  app.get("*", (_req, res) => {
+    res.sendFile(clientIndex);
+  });
+} else {
+  app.get("/", (_req, res) => {
+    res.status(200).send("Client not built. Run 'npm run build' in /client to generate the UI.");
+  });
+}
+
+app.use(errorHandler);
+
+module.exports = app;

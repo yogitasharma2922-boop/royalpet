@@ -1,0 +1,50 @@
+﻿const ApiError = require("../utils/ApiError");
+const { sendSuccess } = require("../utils/apiResponse");
+const { fetchTreatments } = require("../services/treatmentService");
+const { loadOwnerContext } = require("../services/ownerContextService");
+const { insertWithId } = require("../services/tableService");
+
+const listTreatments = async (req, res) => {
+  let petId = req.query.petId;
+  if (req.user.role === "owner") {
+    const ctx = await loadOwnerContext(req);
+    if (!ctx || !ctx.petIds.length) return sendSuccess(res, []);
+    if (petId && !ctx.petIds.includes(Number(petId))) return sendSuccess(res, []);
+    if (!petId) {
+      const visits = await fetchTreatments({});
+      return sendSuccess(res, visits.filter((v) => ctx.petIds.includes(v.petId)));
+    }
+  }
+  const treatments = await fetchTreatments({ petId });
+  return sendSuccess(res, treatments);
+};
+
+const getTreatment = async (req, res) => {
+  const treatments = await fetchTreatments({ visitId: req.params.id });
+  if (!treatments.length) throw new ApiError(404, "Not found");
+  if (req.user.role === "owner") {
+    const ctx = await loadOwnerContext(req);
+    if (!ctx || !ctx.petIds.includes(treatments[0].petId)) throw new ApiError(403, "Forbidden");
+  }
+  return sendSuccess(res, treatments[0]);
+};
+
+const createTreatment = async (req, res) => {
+  const payload = req.body;
+  if (!payload || typeof payload !== "object") throw new ApiError(400, "Invalid payload");
+  const required = ["petId", "date", "status"];
+  const missing = required.filter((f) => payload[f] === undefined || payload[f] === null || payload[f] === "");
+  if (missing.length) throw new ApiError(400, "Missing fields", missing);
+
+  const { medicines, ...visitData } = payload;
+  const visitId = await insertWithId("visits", visitData);
+
+  if (Array.isArray(medicines) && medicines.length) {
+    await insertWithId("prescriptions", { visitId, medicines });
+  }
+
+  const treatments = await fetchTreatments({ visitId });
+  return sendSuccess(res, treatments[0], undefined, 201);
+};
+
+module.exports = { listTreatments, getTreatment, createTreatment };
