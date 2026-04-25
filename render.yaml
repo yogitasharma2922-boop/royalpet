@@ -3,7 +3,7 @@
     name: royalpet-backend
     env: node
     rootDir: server
-    buildCommand: npm ci && npm run migrate
+    buildCommand: cd ../client && npm ci && npm run build && cd ../server && npm ci && npm run migrate
     startCommand: npm start
     autoDeploy: true
     envVars:
@@ -39,3 +39,10 @@
         sync: false
       - key: S3_SECRET_ACCESS_KEY
         sync: false
+
+databases:
+  - name: royalpet-db
+    region: oregon
+    databaseName: royalpet
+    plan: starter
+    version: 15
