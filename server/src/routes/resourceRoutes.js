@@ -1,4 +1,5 @@
 ﻿const express = require("express");
+const asyncHandler = require("../utils/asyncHandler");
 const { authenticate, requireRole } = require("../middleware/auth");
 const env = require("../config/env");
 const {
@@ -17,16 +18,16 @@ const registerResource = (name, allowRoles = ["admin", "doctor", "receptionist"]
   const bulkRoles = name === "appointments" ? allowRoles.filter((role) => role !== "owner") : allowRoles;
   const allowBulk = env.ALLOW_BULK_SYNC;
 
-  router.get(`/${name}`, authenticate, requireRole(viewRoles), listResources(name));
-  router.get(`/${name}/:id`, authenticate, requireRole(viewRoles), getResource(name));
+  router.get(`/${name}`, authenticate, requireRole(viewRoles), asyncHandler(listResources(name)));
+  router.get(`/${name}/:id`, authenticate, requireRole(viewRoles), asyncHandler(getResource(name)));
 
   if (allowCreate) {
-    router.post(`/${name}`, authenticate, requireRole(allowRoles), createResource(name));
+    router.post(`/${name}`, authenticate, requireRole(allowRoles), asyncHandler(createResource(name)));
   }
 
-  router.put(`/${name}`, authenticate, requireRole(bulkRoles), (req, res, next) => replaceResources(name, allowBulk)(req, res, next));
-  router.put(`/${name}/:id`, authenticate, requireRole(allowRoles), updateResource(name));
-  router.delete(`/${name}/:id`, authenticate, requireRole(allowRoles), deleteResource(name));
+  router.put(`/${name}`, authenticate, requireRole(bulkRoles), asyncHandler((req, res, next) => replaceResources(name, allowBulk)(req, res, next)));
+  router.put(`/${name}/:id`, authenticate, requireRole(allowRoles), asyncHandler(updateResource(name)));
+  router.delete(`/${name}/:id`, authenticate, requireRole(allowRoles), asyncHandler(deleteResource(name)));
 };
 
 registerResource("owners", ["admin", "receptionist"]);
