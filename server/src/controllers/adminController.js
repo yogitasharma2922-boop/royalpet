@@ -1,6 +1,8 @@
 const db = require("../db/knex");
+const ApiError = require("../utils/ApiError");
 const { loadOwnerContext } = require("../services/ownerContextService");
 const { sendSuccess } = require("../utils/apiResponse");
+const { getActivityLog, getActivityStats } = require("../services/activityService");
 
 const buildScopedDump = async (user) => {
   const baseUserColumns = ["id", "name", "email", "role", "mobile", "active", "avatar", "lastLogin", "ownerId"];
@@ -65,4 +67,31 @@ const getDbDump = async (req, res) => {
   return sendSuccess(res, data);
 };
 
-module.exports = { getBootstrap, getDbDump };
+const getActivityLogs = async (req, res) => {
+  if (req.user.role !== "admin") throw new ApiError(403, "Only admins can view activity logs");
+  
+  const { action, type, days, limit } = req.query;
+  const startDate = days ? new Date(Date.now() - days * 24 * 60 * 60 * 1000) : null;
+  
+  const filters = {};
+  if (action) filters.action = action;
+  if (type) filters.type = type;
+  if (startDate) filters.startDate = startDate;
+  if (limit) filters.limit = parseInt(limit);
+  
+  const logs = await getActivityLog(filters);
+  const statsData = await getActivityStats(parseInt(days) || 7);
+  
+  return sendSuccess(res, { logs, stats: statsData });
+};
+
+const getActivityStatsEndpoint = async (req, res) => {
+  if (req.user.role !== "admin") throw new ApiError(403, "Only admins can view activity stats");
+  
+  const { days } = req.query;
+  const stats = await getActivityStats(parseInt(days) || 7);
+  
+  return sendSuccess(res, stats);
+};
+
+module.exports = { getBootstrap, getDbDump, getActivityLogs, getActivityStatsEndpoint };

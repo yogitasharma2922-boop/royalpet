@@ -4,6 +4,9 @@ const fetchTreatments = async (filters = {}) => {
   let query = db("visits").select("visits.*");
   if (filters.petId) query = query.where("visits.petId", filters.petId);
   if (filters.visitId) query = query.where("visits.id", filters.visitId);
+  if (filters.petIds && Array.isArray(filters.petIds) && filters.petIds.length) {
+    query = query.whereIn("visits.petId", filters.petIds);
+  }
   const visits = await query;
   const visitIds = visits.map((v) => v.id);
   const prescriptions = visitIds.length

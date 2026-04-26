@@ -66,20 +66,21 @@ const buildListQuery = (table, cols, queryParams) => {
 };
 
 const paginate = async (query, page = 1, limit = 20) => {
-  const currentPage = Math.max(Number(page) || 1, 1);
-  const perPage = Math.min(Math.max(Number(limit) || 20, 1), 100);
+  // Ensure page and limit are valid integers with explicit bounds
+  const pageNum = Math.max(1, Math.min(Number(page) || 1, Number.MAX_SAFE_INTEGER));
+  const limitNum = Math.max(1, Math.min(Number(limit) || 20, 500));
 
   const countRow = await query.clone().clearSelect().count({ count: "*" }).first();
   const total = Number(countRow?.count || 0);
-  const data = await query.offset((currentPage - 1) * perPage).limit(perPage);
+  const data = await query.offset((pageNum - 1) * limitNum).limit(limitNum);
 
   return {
     data,
     meta: {
-      page: currentPage,
-      limit: perPage,
+      page: pageNum,
+      limit: limitNum,
       total,
-      totalPages: Math.ceil(total / perPage) || 1,
+      totalPages: Math.ceil(total / limitNum) || 1,
     },
   };
 };

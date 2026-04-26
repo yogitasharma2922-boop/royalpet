@@ -72,8 +72,16 @@ const storeFile = async (file) => {
 
   fs.mkdirSync(env.UPLOAD_DIR, { recursive: true });
   const target = path.join(env.UPLOAD_DIR, key);
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, file.buffer);
+  
+  // Security: Verify the final path is within UPLOAD_DIR to prevent directory traversal
+  const normalized = path.normalize(target);
+  const uploadDirNormalized = path.normalize(env.UPLOAD_DIR);
+  if (!normalized.startsWith(uploadDirNormalized + path.sep) && normalized !== uploadDirNormalized) {
+    throw new ApiError(400, "Invalid file path");
+  }
+  
+  fs.mkdirSync(path.dirname(normalized), { recursive: true });
+  fs.writeFileSync(normalized, file.buffer);
 
   return {
     name: file.originalname,

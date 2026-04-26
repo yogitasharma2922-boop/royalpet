@@ -30,8 +30,22 @@ const parseInventoryCsv = (csvText) => {
     };
   };
 
+  const validateRow = (row) => {
+    if (!row.name?.trim()) throw new ApiError(400, "Medicine name is required");
+    if (isNaN(row.stock) || row.stock < 0) throw new ApiError(400, "Stock must be non-negative number");
+    if (isNaN(row.minStock) || row.minStock < 0) throw new ApiError(400, "Min stock must be non-negative number");
+    if (isNaN(row.price) || row.price < 0) throw new ApiError(400, "Price must be non-negative number");
+    if (row.expiry) {
+      const expiryDate = new Date(row.expiry);
+      if (isNaN(expiryDate.getTime())) throw new ApiError(400, "Invalid expiry date format");
+      if (expiryDate < new Date()) throw new ApiError(400, `Expiry date cannot be in the past: ${row.expiry}`);
+    }
+  };
+
   const rows = records.map(mapRow).filter((r) => r.name);
   if (!rows.length) throw new ApiError(400, "No valid rows found");
+  
+  rows.forEach(validateRow);
   return rows;
 };
 

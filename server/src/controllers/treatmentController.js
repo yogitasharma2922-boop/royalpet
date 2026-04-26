@@ -11,8 +11,8 @@ const listTreatments = async (req, res) => {
     if (!ctx || !ctx.petIds.length) return sendSuccess(res, []);
     if (petId && !ctx.petIds.includes(Number(petId))) return sendSuccess(res, []);
     if (!petId) {
-      const visits = await fetchTreatments({});
-      return sendSuccess(res, visits.filter((v) => ctx.petIds.includes(v.petId)));
+      const treatments = await fetchTreatments({ petIds: ctx.petIds });
+      return sendSuccess(res, treatments);
     }
   }
   const treatments = await fetchTreatments({ petId });
@@ -35,6 +35,14 @@ const createTreatment = async (req, res) => {
   const required = ["petId", "date", "status"];
   const missing = required.filter((f) => payload[f] === undefined || payload[f] === null || payload[f] === "");
   if (missing.length) throw new ApiError(400, "Missing fields", missing);
+
+  // Add owner context validation for owner-role users
+  if (req.user.role === "owner") {
+    const ctx = await loadOwnerContext(req);
+    if (!ctx || !ctx.petIds.includes(Number(payload.petId))) {
+      throw new ApiError(403, "Forbidden: pet does not belong to your account");
+    }
+  }
 
   const { medicines, ...visitData } = payload;
   const visitId = await insertWithId("visits", visitData);
