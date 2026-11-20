@@ -1,19 +1,27 @@
-﻿const bcrypt = require("bcrypt");
+const bcrypt = require("bcrypt");
 const db = require("../db/knex");
 const { createToken } = require("../services/authService");
 const { hasOwnerIdColumn } = require("../services/ownerContextService");
 const { insertWithId } = require("../services/tableService");
+const env = require("../config/env");
 const ApiError = require("../utils/ApiError");
 const { sendSuccess } = require("../utils/apiResponse");
 
 const register = async (req, res) => {
-  const { name, email, password, role, mobile } = req.validated.body;
+  const { name, email, password, role, mobile, regCode } = req.validated.body;
 
   const existing = await db("users").where({ email }).first();
   if (existing) throw new ApiError(409, "User already exists");
 
-  const allowedRoles = ["owner", "doctor", "receptionist"];
-  const safeRole = allowedRoles.includes(role) ? role : "owner";
+  // Staff accounts need a registration code that only the clinic knows (set in env).
+  // Without it anyone could self-register as doctor and read every record.
+  const staffCodes = { doctor: env.DOCTOR_REG_CODE, receptionist: env.RECEPTION_REG_CODE };
+  let safeRole = "owner";
+  if (role === "doctor" || role === "receptionist") {
+    const expected = staffCodes[role];
+    if (!expected || String(regCode || "").trim() !== expected) throw new ApiError(403, "Invalid registration code");
+    safeRole = role;
+  }
 
   const hash = await bcrypt.hash(password, 10);
   const userPayload = {
@@ -28,6 +36,7 @@ const register = async (req, res) => {
   };
 
   let user;
+  await hasOwnerIdColumn(); // warm the cache before the transaction (single-connection pools deadlock otherwise)
   await db.transaction(async (trx) => {
     const userId = await insertWithId("users", userPayload, trx);
 
@@ -50,6 +59,7 @@ const login = async (req, res) => {
 
   const user = await db("users").where({ email }).first();
   if (!user) throw new ApiError(401, "Invalid credentials");
+  if (user.active === false || user.active === 0) throw new ApiError(403, "Account is disabled. Contact the clinic admin.");
 
   const match = await bcrypt.compare(password, user.password);
   if (!match) throw new ApiError(401, "Invalid credentials");

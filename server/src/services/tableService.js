@@ -1,4 +1,4 @@
-﻿const db = require("../db/knex");
+const db = require("../db/knex");
 
 const CLIENT = db.client && db.client.config && db.client.config.client;
 const TABLE_COLUMNS = new Map();
@@ -27,6 +27,92 @@ const sanitizePayload = async (table, payload) => {
   return clean;
 };
 
+// Columns that hold JSON. Postgres turns a JS array into a PG array literal
+// (not JSON) so every array MUST be stringified before it is written.
+const JSON_COLUMNS = {
+  pets: ["alerts"],
+  prescriptions: ["medicines"],
+  invoices: ["items"],
+};
+const BOOLEAN_COLUMNS = {
+  users: ["active"],
+  visits: ["emergency", "inventoryDeducted"],
+  planner_tasks: ["done"],
+};
+const TEXT_TYPES = new Set(["varchar", "character varying", "text", "char", "character", "string"]);
+const isTextType = (type) => TEXT_TYPES.has(String(type || "").toLowerCase());
+
+const COLUMN_TYPES = new Map();
+const getColumnTypes = async (table) => {
+  if (COLUMN_TYPES.has(table)) return COLUMN_TYPES.get(table);
+  try {
+    const info = (await db(table).columnInfo()) || {};
+    COLUMN_TYPES.set(table, info);
+    return info;
+  } catch {
+    return {};
+  }
+};
+
+/**
+ * Make a client row safe to write: stringify JSON columns, turn "" and NaN
+ * into null for non-text columns (date/number/boolean), and drop unknown keys.
+ */
+const serializeRow = async (table, row) => {
+  if (!row || typeof row !== "object") return row;
+  const types = await getColumnTypes(table);
+  const names = Object.keys(types);
+  const jsonCols = JSON_COLUMNS[table] || [];
+  const out = {};
+  for (const key of Object.keys(row)) {
+    if (names.length && !names.includes(key)) continue;
+    let value = row[key];
+    if (value === undefined) continue;
+    if (jsonCols.includes(key)) {
+      if (value === null) { out[key] = null; continue; }
+      if (typeof value === "string") {
+        try { JSON.parse(value); out[key] = value; } catch { out[key] = JSON.stringify(value); }
+      } else {
+        out[key] = JSON.stringify(value);
+      }
+      continue;
+    }
+    if (typeof value === "number" && !Number.isFinite(value)) value = null;
+    if (value === "" && !isTextType(types[key] && types[key].type)) value = null;
+    if (value && typeof value === "object" && !(value instanceof Date)) value = JSON.stringify(value);
+    out[key] = value;
+  }
+  return out;
+};
+
+const parseJsonValue = (value) => {
+  if (typeof value !== "string") return value;
+  try { return JSON.parse(value); } catch { return value; }
+};
+
+/** Reverse of serializeRow for rows read from sqlite (json as text, booleans as 0/1). */
+const deserializeRow = (table, row) => {
+  if (!row || typeof row !== "object") return row;
+  const out = { ...row };
+  (JSON_COLUMNS[table] || []).forEach((c) => {
+    if (c in out && out[c] !== null && out[c] !== undefined) out[c] = parseJsonValue(out[c]);
+    else if (c in out) out[c] = c === "alerts" || c === "medicines" || c === "items" ? [] : out[c];
+  });
+  (BOOLEAN_COLUMNS[table] || []).forEach((c) => {
+    if (c in out && out[c] !== null && out[c] !== undefined) out[c] = Boolean(out[c]);
+  });
+  if (table === "clinic_settings" && "extra" in out) {
+    const extra = parseJsonValue(out.extra);
+    delete out.extra;
+    if (extra && typeof extra === "object") {
+      Object.keys(extra).forEach((k) => { if (!(k in out) || out[k] === null) out[k] = extra[k]; });
+    }
+  }
+  return out;
+};
+
+const deserializeRows = (table, rows) => (Array.isArray(rows) ? rows.map((r) => deserializeRow(table, r)) : rows);
+
 const getInsertId = (result) => (Array.isArray(result) ? result[0] : result);
 
 const insertWithId = async (table, payload, trx) => {
@@ -53,7 +139,7 @@ const buildListQuery = (table, cols, queryParams) => {
     const likeCols = ["name", "email", "mobile", "phone"].filter((c) => cols.includes(c));
     if (likeCols.length) {
       query = query.where((builder) => {
-        likeCols.forEach((c) => builder.orWhere(c, "like", `%${q}%`));
+        likeCols.forEach((c) => builder.orWhere(c, CLIENT === "pg" ? "ilike" : "like", `%${q}%`));
       });
     }
   }
@@ -70,7 +156,7 @@ const paginate = async (query, page = 1, limit = 20) => {
   const pageNum = Math.max(1, Math.min(Number(page) || 1, Number.MAX_SAFE_INTEGER));
   const limitNum = Math.max(1, Math.min(Number(limit) || 20, 500));
 
-  const countRow = await query.clone().clearSelect().count({ count: "*" }).first();
+  const countRow = await query.clone().clearSelect().clearOrder().count({ count: "*" }).first();
   const total = Number(countRow?.count || 0);
   const data = await query.offset((pageNum - 1) * limitNum).limit(limitNum);
 
@@ -86,6 +172,11 @@ const paginate = async (query, page = 1, limit = 20) => {
 };
 
 module.exports = {
+  JSON_COLUMNS,
+  getColumnTypes,
+  serializeRow,
+  deserializeRow,
+  deserializeRows,
   getTableColumns,
   sanitizePayload,
   insertWithId,

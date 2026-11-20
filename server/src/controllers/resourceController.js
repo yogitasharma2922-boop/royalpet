@@ -1,8 +1,10 @@
-﻿const db = require("../db/knex");
+const db = require("../db/knex");
 const ApiError = require("../utils/ApiError");
 const { sendSuccess } = require("../utils/apiResponse");
 const { loadOwnerContext } = require("../services/ownerContextService");
-const { sanitizePayload, insertWithId, buildListQuery, paginate, getTableColumns } = require("../services/tableService");
+const policy = require("../config/rolePolicy");
+const env = require("../config/env");
+const { sanitizePayload, insertWithId, buildListQuery, paginate, getTableColumns, serializeRow, deserializeRow, deserializeRows } = require("../services/tableService");
 
 const OWNER_SCOPES = {
   owners: (query, ctx) => query.where("owners.id", ctx.ownerId),
@@ -33,6 +35,23 @@ const requireFields = (payload, fields) => {
   return missing;
 };
 
+// Owners are scoped by record (OWNER_SCOPES), so they get full rows of their own data.
+const columnsFor = (req, table) => (req.user.role === "owner" ? null : policy.readColumns(req.user.role, table));
+
+const visibleColumns = (req, table, cols) => {
+  const allowed = columnsFor(req, table);
+  return allowed ? cols.filter((c) => allowed.includes(c)) : cols;
+};
+
+const shapeRow = (req, table, row) => policy.pick(deserializeRow(table, row), columnsFor(req, table));
+
+// Staff only write the columns their role owns (front desk cannot touch clinical visit fields).
+const restrictToWritable = (req, table, payload) => {
+  if (req.user.role === "owner") return payload;
+  const allowed = policy.writeColumns(req.user.role, table);
+  return allowed ? policy.pick(payload, allowed) : payload;
+};
+
 const applyOwnerPayloadScope = async (table, req, payload) => {
   if (req.user.role !== "owner") return payload;
   const ctx = await loadOwnerContext(req);
@@ -44,11 +63,33 @@ const applyOwnerPayloadScope = async (table, req, payload) => {
     return scopedPayload;
   }
 
+  if (table === "visits") {
+    // Owner walk-in request: only for their own pet, always starts as "waiting"
+    if (!ctx.petIds.includes(Number(payload.petId))) throw new ApiError(403, "Forbidden pet");
+    return {
+      petId: Number(payload.petId),
+      reason: String(payload.reason || "").slice(0, 500),
+      date: new Date().toISOString().split("T")[0],
+      status: "waiting",
+      emergency: false,
+      source: "owner-portal",
+    };
+  }
+
   throw new ApiError(403, "Forbidden");
 };
 
+// Next case number for today: RPC-YYYYMMDD-NNN
+const nextCaseNum = async () => {
+  const day = new Date().toISOString().split("T")[0];
+  const prefix = `RPC-${day.replace(/-/g, "")}-`;
+  const rows = await db("visits").where("caseNum", "like", `${prefix}%`).select("caseNum");
+  const max = rows.reduce((m, r) => Math.max(m, parseInt(String(r.caseNum).slice(prefix.length), 10) || 0), 0);
+  return `${prefix}${String(max + 1).padStart(3, "0")}`;
+};
+
 const listResources = (table) => async (req, res) => {
-  const cols = await getTableColumns(table);
+  const cols = visibleColumns(req, table, await getTableColumns(table));
   let query = buildListQuery(table, cols, req.query);
   if (req.user.role === "owner" && OWNER_SCOPES[table]) {
     const ctx = await loadOwnerContext(req);
@@ -57,7 +98,7 @@ const listResources = (table) => async (req, res) => {
   }
 
   const { data, meta } = await paginate(query, req.query.page, req.query.limit);
-  return sendSuccess(res, data, meta);
+  return sendSuccess(res, data.map((r) => shapeRow(req, table, r)), meta);
 };
 
 const getResource = (table) => async (req, res) => {
@@ -69,28 +110,30 @@ const getResource = (table) => async (req, res) => {
   }
   const row = await query.first();
   if (!row) throw new ApiError(404, "Not found");
-  return sendSuccess(res, row);
+  return sendSuccess(res, shapeRow(req, table, row));
 };
 
 const createResource = (table) => async (req, res) => {
   let payload = await sanitizePayload(table, req.body);
   if (!payload || typeof payload !== "object") throw new ApiError(400, "Invalid payload");
+  payload = restrictToWritable(req, table, payload);
   payload = await applyOwnerPayloadScope(table, req, payload);
   const required = REQUIRED_FIELDS[table] || [];
   if (required.length) {
     const missing = requireFields(payload, required);
     if (missing.length) throw new ApiError(400, "Missing fields", missing);
   }
-  const insertedId = await insertWithId(table, payload);
-  return sendSuccess(res, { id: insertedId }, undefined, 201);
+  if (table === "visits" && req.user.role === "owner") payload.caseNum = await nextCaseNum();
+  const insertedId = await insertWithId(table, await serializeRow(table, payload));
+  return sendSuccess(res, { id: insertedId, ...(payload.caseNum ? { caseNum: payload.caseNum } : {}) }, undefined, 201);
 };
 
-const replaceResources = (table, allowBulk) => async (req, res) => {
-  if (!allowBulk) throw new ApiError(403, "Bulk sync disabled");
+const replaceResources = (table) => async (req, res) => {
+  if (!env.ALLOW_BULK_SYNC) throw new ApiError(403, "Bulk sync disabled");
   const rows = req.body;
   if (!Array.isArray(rows)) throw new ApiError(400, "Expected array");
   const cleaned = [];
-  for (const row of rows) cleaned.push(await sanitizePayload(table, row));
+  for (const row of rows) cleaned.push(await serializeRow(table, row));
   await db.transaction(async (trx) => {
     await trx(table).del();
     if (cleaned.length) await trx(table).insert(cleaned);
@@ -101,8 +144,10 @@ const replaceResources = (table, allowBulk) => async (req, res) => {
 const updateResource = (table) => async (req, res) => {
   let changes = await sanitizePayload(table, req.body);
   if (!changes || typeof changes !== "object") throw new ApiError(400, "Invalid payload");
+  changes = restrictToWritable(req, table, changes);
   if (!Object.keys(changes).length) throw new ApiError(400, "Empty update payload");
   changes = await applyOwnerPayloadScope(table, req, changes);
+  changes = await serializeRow(table, changes);
   const cols = await getTableColumns(table);
   const updatePayload = cols.includes("updatedAt") ? { ...changes, updatedAt: new Date() } : changes;
   let query = db(table).where({ id: req.params.id });
@@ -119,7 +164,7 @@ const updateResource = (table) => async (req, res) => {
     updatedQuery = OWNER_SCOPES[table](updatedQuery, ctx);
   }
   const updated = await updatedQuery.first();
-  return sendSuccess(res, updated);
+  return sendSuccess(res, shapeRow(req, table, updated));
 };
 
 const deleteResource = (table) => async (req, res) => {

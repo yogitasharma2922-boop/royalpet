@@ -1,8 +1,8 @@
-﻿const ApiError = require("../utils/ApiError");
+const ApiError = require("../utils/ApiError");
 const { sendSuccess } = require("../utils/apiResponse");
 const { fetchTreatments } = require("../services/treatmentService");
 const { loadOwnerContext } = require("../services/ownerContextService");
-const { insertWithId } = require("../services/tableService");
+const { insertWithId, serializeRow } = require("../services/tableService");
 
 const listTreatments = async (req, res) => {
   let petId = req.query.petId;
@@ -45,10 +45,10 @@ const createTreatment = async (req, res) => {
   }
 
   const { medicines, ...visitData } = payload;
-  const visitId = await insertWithId("visits", visitData);
+  const visitId = await insertWithId("visits", await serializeRow("visits", visitData));
 
   if (Array.isArray(medicines) && medicines.length) {
-    await insertWithId("prescriptions", { visitId, medicines });
+    await insertWithId("prescriptions", await serializeRow("prescriptions", { visitId, medicines }));
   }
 
   const treatments = await fetchTreatments({ visitId });

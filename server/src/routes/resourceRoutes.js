@@ -1,7 +1,7 @@
-﻿const express = require("express");
+const express = require("express");
 const asyncHandler = require("../utils/asyncHandler");
 const { authenticate, requireRole } = require("../middleware/auth");
-const env = require("../config/env");
+const policy = require("../config/rolePolicy");
 const {
   listResources,
   getResource,
@@ -13,32 +13,44 @@ const {
 
 const router = express.Router();
 
-const registerResource = (name, allowRoles = ["admin", "doctor", "receptionist"], allowCreate = true, readRoles) => {
-  const viewRoles = readRoles || ["admin", "doctor", "receptionist", "owner"];
-  const bulkRoles = name === "appointments" ? allowRoles.filter((role) => role !== "owner") : allowRoles;
-  const allowBulk = env.ALLOW_BULK_SYNC;
+// Owners may read only the tables that have an owner scope in resourceController.
+const OWNER_READABLE = ["owners", "pets", "visits", "prescriptions", "appointments", "vaccinations", "invoices"];
+
+const registerResource = (name, { allowCreate = true } = {}) => {
+  const viewRoles = [...policy.rolesThatRead(name)];
+  if (OWNER_READABLE.includes(name)) viewRoles.push("owner");
+  const writeRoles = policy.rolesThatWrite(name);
+  const removeRoles = policy.rolesThatRemove(name);
+  // Owners may only create their own appointment requests
+  const createRoles = name === "appointments" || name === "visits" ? [...writeRoles, "owner"] : writeRoles;
+  const updateRoles = name === "appointments" ? [...writeRoles, "owner"] : writeRoles;
+  const deleteRoles = name === "appointments" ? [...removeRoles, "owner"] : removeRoles;
 
   router.get(`/${name}`, authenticate, requireRole(viewRoles), asyncHandler(listResources(name)));
   router.get(`/${name}/:id`, authenticate, requireRole(viewRoles), asyncHandler(getResource(name)));
 
-  if (allowCreate) {
-    router.post(`/${name}`, authenticate, requireRole(allowRoles), asyncHandler(createResource(name)));
+  if (allowCreate && createRoles.length) {
+    router.post(`/${name}`, authenticate, requireRole(createRoles), asyncHandler(createResource(name)));
   }
 
-  router.put(`/${name}`, authenticate, requireRole(bulkRoles), asyncHandler((req, res, next) => replaceResources(name, allowBulk)(req, res, next)));
-  router.put(`/${name}/:id`, authenticate, requireRole(allowRoles), asyncHandler(updateResource(name)));
-  router.delete(`/${name}/:id`, authenticate, requireRole(allowRoles), asyncHandler(deleteResource(name)));
+  // Whole-table replace is destructive: admin only, and off unless ALLOW_BULK_SYNC=true.
+  // The app itself uses PUT /api/sync (delta) instead.
+  router.put(`/${name}`, authenticate, requireRole(["admin"]), asyncHandler(replaceResources(name)));
+  if (updateRoles.length) router.put(`/${name}/:id`, authenticate, requireRole(updateRoles), asyncHandler(updateResource(name)));
+  if (deleteRoles.length) router.delete(`/${name}/:id`, authenticate, requireRole(deleteRoles), asyncHandler(deleteResource(name)));
 };
 
-registerResource("owners", ["admin", "receptionist"]);
-registerResource("pets", ["admin", "doctor", "receptionist"]);
-registerResource("visits", ["admin", "doctor", "receptionist"]);
-registerResource("appointments", ["admin", "doctor", "receptionist", "owner"]);
-registerResource("inventory", ["admin", "doctor", "receptionist"], true, ["admin", "doctor", "receptionist"]);
-registerResource("prescriptions", ["admin", "doctor"]);
-registerResource("invoices", ["admin", "doctor", "receptionist"]);
-registerResource("vaccinations", ["admin", "doctor", "receptionist"]);
-registerResource("activity_log", ["admin"], false, ["admin"]);
-registerResource("clinic_settings", ["admin"], false, ["admin"]);
+registerResource("owners");
+registerResource("pets");
+registerResource("visits");
+registerResource("appointments");
+registerResource("inventory");
+registerResource("prescriptions");
+registerResource("invoices");
+registerResource("vaccinations");
+registerResource("supplier_payments");
+registerResource("planner_tasks");
+registerResource("activity_log", { allowCreate: false });
+registerResource("clinic_settings", { allowCreate: false });
 
 module.exports = router;

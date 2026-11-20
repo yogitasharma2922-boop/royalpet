@@ -1,108 +1,60 @@
-# Royal Pet Clinic (Full Stack)
+# Royal Pet Clinic
 
-This workspace contains a complete **full-stack** Royal Pet Clinic application.
+Full-stack clinic management app. React + Vite client, Express API, Knex migrations, SQLite for local work and PostgreSQL in production.
 
-- **Client:** React + Vite app (`/client`) with the full UI and workflow.
-- **Server:** Express API with a **real database** (SQLite by default, pluggable to Postgres via `DATABASE_URL`) (`/server`).
-- **Storage:** Local uploads in development, with S3-compatible object storage support for production image/CDN delivery.
+## Roles and access
 
----
+Access is enforced on the server (`server/src/config/rolePolicy.js`), not only in the interface. A role cannot open another role's pages and cannot read or change its data through the API either.
 
-## ✅ Key Features
+| Data | Admin | Doctor | Receptionist | Owner |
+|---|---|---|---|---|
+| Owners, pets | read, write, delete | read, write | read, write | own records only |
+| Appointments | full | full | full | own, request only |
+| Visits (queue, vitals) | full | full | queue fields and vitals only | own, walk-in request only |
+| Diagnosis, notes, prescriptions | full | full | none | own records only |
+| Vaccinations | full | full | none | own records only |
+| Invoices, inventory, supplier payments | full | full | none | own invoices only |
+| Users, activity log, backups, clinic settings | full | none | none | none |
 
-- **Real database** using SQLite (default), with schema and seeds generated via Knex.
-- **Multi-user auth** via JWT tokens + role-based access control (admin/doctor/receptionist/owner).
-- **Separate environments** via `.env` configuration and `NODE_ENV`.
-- **API-backed session restore and bootstrap** so the client hydrates from the persistent database after login.
-- **Background server sync** from the existing UI save flow for staff-side CRUD screens.
-- **Owner self-service appointment requests** persisted through the API.
-- **Pluggable image storage** with a cost-effective long-term production path using S3-compatible storage.
+Doctors and receptionists see other users only by name. Deactivating a user blocks them on their next request.
 
-## 🚀 Production Deployment
-
-### 1) Build the client
+## Local development
 
 ```bash
-cd client
-npm install
-npm run build
+cd server && npm install && npm run migrate && npm run seed && npm run dev   # API on :4000
+cd client && npm install && npm run dev                                       # UI on :5173 (proxies /api)
 ```
 
-### 2) Start the server in production
+Demo accounts (created by the seed when `SEED_DEMO_USERS=true`, the default outside production):
+
+- `doctor@royalpet.in` / `doctor123`
+- `reception@royalpet.in` / `recep123`
+- `admin@royalpet.in` / `admin123`
+- `owner@royalpet.in` / `owner123`
+
+## Tests
 
 ```bash
-cd server
-npm install
-npm run migrate
-npm run seed
-NODE_ENV=production npm start
+cd server && npm test                                   # in-memory SQLite
+TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/royalpet_test npm test   # real Postgres
+cd client && npm test
 ```
 
-The server will serve the built client at **http://localhost:4000** and handle all API requests.
+## Deploying on Render
 
-### Environment Variables
+1. Push the repository and create a Blueprint from `render.yaml`. It creates the web service and a Postgres database and wires `DATABASE_URL` and `JWT_SECRET`.
+2. The service builds the client, then at start runs `npm run migrate` and `npm run seed`. The seed only fills an empty database, so redeploys never touch live data.
+3. Set `DOCTOR_REG_CODE` and `RECEPTION_REG_CODE` if staff may sign themselves up. Leave them empty to disable that and create staff from the admin screen.
+4. Before real clinic use, set `SEED_DEMO_USERS=false` together with `ADMIN_EMAIL` and `ADMIN_PASSWORD` on a fresh database, so no public demo passwords exist.
 
-Create `server/.env`:
-```
-JWT_SECRET=your-super-secret-jwt-key-here
-DATABASE_URL=sqlite://server/data/royalpet.db  # or postgres://... for production DB
-ALLOW_BULK_SYNC=true
+Environment variables are listed in `server/.env.example`.
 
-# Local uploads (default)
-STORAGE_PROVIDER=local
+## How data is saved
 
-# Recommended production image setup: Cloudflare R2 + CDN/custom domain
-# STORAGE_PROVIDER=s3
-# S3_BUCKET=royalpet-images
-# S3_REGION=auto
-# S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
-# S3_ACCESS_KEY_ID=...
-# S3_SECRET_ACCESS_KEY=...
-# S3_PUBLIC_BASE_URL=https://images.yourdomain.com
-```
+The UI keeps a working copy in the browser and sends only the rows that changed to `PUT /api/sync` after each save. The server applies them in one transaction in dependency order, ignores references to rows that do not exist, and never deletes a row unless that row's id is in the request. Saves are queued, retried when the network drops, and flushed before sign-out. An idle tab refreshes from the server every 45 seconds when it has nothing unsaved.
 
----
+## Known limitations
 
-### Manage database
-
-```bash
-cd server
-npm run migrate    # Apply schema
-npm run seed       # Seed initial data
-npm run reset-db   # Drop + rebuild + seed
-```
-
----
-
-## 🔐 Auth
-
-Use the seeded users:
-
-- `doctor@royalpet.in` / `doctor123` (Doctor)
-- `reception@royalpet.in` / `recep123` (Receptionist)
-- `admin@royalpet.in` / `admin123` (Admin)
-- `owner@royalpet.in` / `owner123` (Pet Owner)
-
----
-
-## 🚀 Deploying
-
-1. Build client:
-   ```bash
-   cd client
-   npm run build
-   ```
-2. Configure your environment variables (`PORT`, `JWT_SECRET`, `DATABASE_URL`).
-3. Start server in production mode:
-   ```bash
-   cd server
-   npm start
-   ```
-
----
-
-## Next Improvements (Optional)
-- Add WebSocket or SSE updates for truly live multi-user refresh across tabs/devices.
-- Break the large client page into feature modules and dedicated API hooks.
-- Add image metadata tables if you want pet/profile/gallery uploads tracked in the DB.
-- Move from SQLite to Postgres for multi-instance horizontal scale.
+- Image uploads on Render's disk are deleted at each deploy. Set `STORAGE_PROVIDER=s3` (Cloudflare R2 or S3) to keep them.
+- Two users who create a record of the same kind within the same few seconds can pick the same id, and the later save overwrites the earlier one. Moving id generation fully to the server would remove this.
+- The sign-in token is stored in `localStorage`.

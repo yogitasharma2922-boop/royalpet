@@ -219,10 +219,12 @@ const useApp = () => useContext(AppCtx);
 const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
 const TOKEN_KEY = "rpc_token";
 const SESSION_KEY = "rpc_sessions";
+// Mirrors server/src/config/rolePolicy.js. The server is the real gate, this only avoids sending
+// changes a role is not allowed to make.
 const MUTABLE_TABLES_BY_ROLE = {
-  admin: ["owners", "pets", "visits", "appointments", "inventory", "prescriptions", "invoices", "vaccinations", "activity_log", "clinic_settings"],
-  doctor: ["pets", "visits", "appointments", "inventory", "prescriptions", "invoices", "vaccinations"],
-  receptionist: ["owners", "pets", "visits", "appointments", "inventory", "invoices", "vaccinations"],
+  admin: ["owners", "pets", "visits", "appointments", "inventory", "prescriptions", "invoices", "vaccinations", "supplier_payments", "planner_tasks", "activity_log", "clinic_settings"],
+  doctor: ["owners", "pets", "visits", "appointments", "inventory", "prescriptions", "invoices", "vaccinations", "supplier_payments", "planner_tasks", "activity_log"],
+  receptionist: ["owners", "pets", "visits", "appointments", "planner_tasks", "activity_log"],
 };
 
 const getStoredToken = () => localStorage.getItem(TOKEN_KEY);
@@ -245,7 +247,9 @@ const apiRequest = async (path, options = {}, tokenOverride) => {
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
     const message = payload?.error?.message || payload?.error || payload?.message || "Request failed";
-    throw new Error(message);
+    const err = new Error(message);
+    err.status = res.status;
+    throw err;
   }
 
   return payload?.data ?? payload;
@@ -322,7 +326,7 @@ const MED_DEFAULTS = {
   [normalizeMedName("Inj. Furosemide")]: { dose: "1 mg/kg", instruction: "Injection" },
   [normalizeMedName("Inj. Torsemide")]: { dose: "0.2 mg/kg", instruction: "Injection" },
   [normalizeMedName("Normal Saline (NS)")]: { dose: "As directed", instruction: "IV" },
-  [normalizeMedName("Lactated Ringer?Ts Solution (RL)")]: { dose: "As directed", instruction: "IV" },
+  [normalizeMedName("Lactated Ringer’s Solution (RL)")]: { dose: "As directed", instruction: "IV" },
   [normalizeMedName("Lactated Ringer's Solution (RL)")]: { dose: "As directed", instruction: "IV" },
   [normalizeMedName("DNS")]: { dose: "As directed", instruction: "IV" },
   [normalizeMedName("D10")]: { dose: "As directed", instruction: "IV" },
@@ -418,8 +422,8 @@ const initDB = () => {
   }
   const db = {
     users: [
-      { id: 1, name: "Dr. Rajan Mehta", email: "doctor@royalpet.in", password: "doctor123", role: "doctor", mobile: "9876500001", avatar: "DR", active: true, lastLogin: "2026-03-14T09:00:00" },
-      { id: 2, name: "Rajesh Kumar", email: "owner@royalpet.in", password: "owner123", role: "owner", mobile: "9876543210", avatar: "RK", active: true, lastLogin: "2026-03-13T18:00:00" },
+      { id: 1, name: "Dr. Rajan Mehta", email: "doctor@royalpet.in", role: "doctor", mobile: "9876500001", avatar: "DR", active: true, lastLogin: "2026-03-14T09:00:00" },
+      { id: 2, name: "Rajesh Kumar", email: "owner@royalpet.in", role: "owner", mobile: "9876543210", avatar: "RK", active: true, lastLogin: "2026-03-13T18:00:00" },
     ],
     owners: [
       { id: 1, name: "Rajesh Kumar", mobile: "9876543210", email: "rajesh@gmail.com", address: "12, MG Road, Bangalore" },
@@ -457,7 +461,7 @@ const initDB = () => {
     sessions: [],
     activityLog: [],
     nextVisitNum: { "2026-03-11": 3 },
-    clinicSettings: { name: "Royal Pet Clinic", doctor: "Dr. Rajan Mehta", signature: "Dr. Rajan Mehta, BVSc & AH", phone: "+91 80 1234 5678", email: "info@royalpetclinic.in", address: "123, MG Road, Bangalore - 560001", regNum: "VET/2020/BLR/0042", consultFee: 500, currency: ",", reminderVaccDays: 7, reminderFollowupDays: 1, reminderTime: "09:00", reminderChannel: "Both", reminderWhatsapp: "+91 80 1234 5678", reminderVaccTemplate: "Dear {owner_name}, this is a reminder that {pet_name}'s {vaccine_name} vaccination is due on {due_date}. Please visit {clinic_name} to schedule an appointment. 🐾", reminderFollowupTemplate: "Dear {owner_name}, your appointment for {pet_name} is scheduled for {apt_date} at {apt_time} at {clinic_name}. See you soon! 🐾", vetReg: "VET/2020/BLR/0042", specialization: "Small Animals & Exotic Pets", experience: 12, doctorBio: "Specialized in small animal medicine, surgery, and exotic pet care. 12+ years of clinical experience in Bangalore.", taxRate: 0, invoicePrefix: "INV", paymentMethods: ["Cash","UPI","Card","Online"], showTax: false, logo: "" },
+    clinicSettings: { name: "Royal Pet Clinic", doctor: "Dr. Rajan Mehta", signature: "Dr. Rajan Mehta, BVSc & AH", phone: "+91 80 1234 5678", email: "info@royalpetclinic.in", address: "123, MG Road, Bangalore - 560001", regNum: "VET/2020/BLR/0042", consultFee: 500, currency: "₹", reminderVaccDays: 7, reminderFollowupDays: 1, reminderTime: "09:00", reminderChannel: "Both", reminderWhatsapp: "+91 80 1234 5678", reminderVaccTemplate: "Dear {owner_name}, this is a reminder that {pet_name}'s {vaccine_name} vaccination is due on {due_date}. Please visit {clinic_name} to schedule an appointment. 🐾", reminderFollowupTemplate: "Dear {owner_name}, your appointment for {pet_name} is scheduled for {apt_date} at {apt_time} at {clinic_name}. See you soon! 🐾", vetReg: "VET/2020/BLR/0042", specialization: "Small Animals & Exotic Pets", experience: 12, doctorBio: "Specialized in small animal medicine, surgery, and exotic pet care. 12+ years of clinical experience in Bangalore.", taxRate: 0, invoicePrefix: "INV", paymentMethods: ["Cash","UPI","Card","Online"], showTax: false, logo: "" },
   };
   localStorage.setItem(DB_KEY, JSON.stringify(db));
   return db;
@@ -477,7 +481,9 @@ const normalizeDbSnapshot = (payload = {}) => {
     vaccinations: payload.vaccinations || [],
     inventory: payload.inventory || [],
     invoices: payload.invoices || [],
-    activityLog: payload.activityLog || [],
+    activityLog: (payload.activityLog || []).map((e, i, all) => (e && e.id != null ? e : { ...e, id: i + 1 + all.reduce((m, r) => Math.max(m, Number(r && r.id) || 0), 0) })),
+    supplierPayments: payload.supplierPayments || [],
+    tasks: payload.tasks || [],
     auditLog: fallback.auditLog || [],
   };
   next.clinicSettings = { ...fallback.clinicSettings, ...(payload.clinicSettings || {}) };
@@ -493,18 +499,25 @@ const toServerResourceMap = (snapshot) => ({
   prescriptions: snapshot.prescriptions || [],
   invoices: snapshot.invoices || [],
   vaccinations: snapshot.vaccinations || [],
+  supplier_payments: snapshot.supplierPayments || [],
+  planner_tasks: snapshot.tasks || [],
   activity_log: snapshot.activityLog || [],
-  clinic_settings: snapshot.clinicSettings ? [snapshot.clinicSettings] : [],
+  clinic_settings: snapshot.clinicSettings ? [{ ...snapshot.clinicSettings, id: snapshot.clinicSettings.id || 1 }] : [],
 });
 
 // "?"?"? Helpers "?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?
 const fmt = (d) => new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 const todayStr = () => new Date().toISOString().split("T")[0];
+// Next free id. `length + 1` reused ids after a delete and caused duplicate-key failures on the server.
+const nextId = (rows) => (rows || []).reduce((m, r) => Math.max(m, Number(r && r.id) || 0), 0) + 1;
+const fmtLogTime = (t) => { const d = new Date(t); return Number.isNaN(d.getTime()) ? String(t || "") : d.toLocaleString("en-IN"); };
+const fmtLogClock = (t) => { const d = new Date(t); return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }); };
 const genCase = (db) => {
   const d = todayStr().replace(/-/g, "");
-  const n = (db.nextVisitNum[todayStr()] || 1);
-  db.nextVisitNum[todayStr()] = n + 1;
-  return `RPC-${d}-${String(n).padStart(3, "0")}`;
+  const prefix = `RPC-${d}-`;
+  const used = (db.visits || []).map((v) => String(v.caseNum || "")).filter((c) => c.startsWith(prefix)).map((c) => parseInt(c.slice(prefix.length), 10) || 0);
+  const n = Math.max(0, ...used) + 1;
+  return `${prefix}${String(n).padStart(3, "0")}`;
 };
 const calcAge = (dob) => {
   const diff = new Date() - new Date(dob);
@@ -725,8 +738,6 @@ function RegisterPage({ onBack, onSuccess }) {
   const [form, setForm] = useState({ name: "", email: "", mobile: "", password: "", confirmPwd: "", role: "doctor", doctorCode: "", receptionCode: "" });
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
-  const DOCTOR_REG_CODE = "RPC-DOC-2026";
-  const RECEPTION_REG_CODE = "RPC-REC-2026";
 
   const submit = async () => {
     setErr("");
@@ -734,8 +745,8 @@ function RegisterPage({ onBack, onSuccess }) {
     if (form.password !== form.confirmPwd) { setErr("Passwords do not match."); return; }
     if (form.password.length < 6) { setErr("Password must be at least 6 characters."); return; }
     if (form.role === "admin") { setErr("Admin registration is disabled."); return; }
-    if (form.role === "doctor" && form.doctorCode.trim() !== DOCTOR_REG_CODE) { setErr("Invalid doctor registration code."); return; }
-    if (form.role === "receptionist" && form.receptionCode.trim() !== RECEPTION_REG_CODE) { setErr("Invalid receptionist registration code."); return; }
+    if (form.role === "doctor" && !form.doctorCode.trim()) { setErr("Doctor registration code is required."); return; }
+    if (form.role === "receptionist" && !form.receptionCode.trim()) { setErr("Receptionist registration code is required."); return; }
     setLoading(true);
     try {
       await apiRequest("/auth/register", {
@@ -746,6 +757,7 @@ function RegisterPage({ onBack, onSuccess }) {
           password: form.password,
           role: form.role,
           mobile: form.mobile,
+          regCode: form.role === "doctor" ? form.doctorCode.trim() : form.role === "receptionist" ? form.receptionCode.trim() : undefined,
         }),
       });
       setLoading(false);
@@ -853,7 +865,6 @@ const NAV_DOCTOR = [
   { id: "suppliers", label: "Supplier Payments", icon: "🏭", section: "" },
   { id: "analytics", label: "Analytics", icon: "📊", section: "" },
   { id: "reminders", label: "Reminders", icon: "🔔", section: "" },
-  { id: "settings", label: "Settings", icon: "⚙️", section: "" },
 ];
 const NAV_ADMIN = [
   { id: "dashboard", label: "Dashboard", icon: "🏠", section: "OVERVIEW" },
@@ -877,7 +888,7 @@ const NAV_ADMIN = [
   { id: "settings", label: "Settings", icon: "⚙️", section: "" },
 ];
 const NAV_RECEP = NAV_DOCTOR
-  .filter((item) => !["analytics","billing","inventory","suppliers","reminders","settings"].includes(item.id))
+  .filter((item) => !["consultation","vaccination","timeline","certificates","analytics","billing","inventory","suppliers","reminders","settings"].includes(item.id))
   .map((item) => ({ ...item, section: item.section === "ADMIN" ? "" : item.section }));
 const NAV_OWNER = [
   { id: "owner-home", label: "My Pets", icon: "🐾", section: "MY PORTAL" },
@@ -891,8 +902,8 @@ const NAV_OWNER = [
 
 function Sidebar({ page, setPage, user, collapsed, setCollapsed }) {
   const navItems = user.role === "admin" ? NAV_ADMIN : user.role === "doctor" ? NAV_DOCTOR : user.role === "receptionist" ? NAV_RECEP : NAV_OWNER;
-  const db = initDB();
-  const lowStock = db.inventory.filter(i => i.stock < i.minStock).length;
+  const { db } = useApp();
+  const lowStock = (db.inventory || []).filter(i => i.stock < i.minStock).length;
   const waiting = db.visits.filter(v => v.status === "waiting").length;
   const ROLE_COLORS = { doctor: "#1d6a6a", receptionist: "#c9973a", admin: "#c0392b", owner: "#7a5c1e" };
   const ROLE_LABELS = { doctor: "Veterinarian", receptionist: "Reception", admin: "System Admin", owner: "Pet Owner" };
@@ -1187,7 +1198,7 @@ function AdminDashboard({ setPage }) {
               <div key={i} style={{ padding: "7px 0", borderBottom: "1px solid var(--bdr3)", fontSize: 11 }}>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <span style={{ color: log.type === "error" ? "var(--red)" : log.type === "warning" ? "var(--org)" : "var(--txt2)", fontWeight: 700, fontSize: 12 }}>{log.action}</span>
-                  <span style={{ color: "var(--txt3)", marginLeft: "auto", fontFamily: "'JetBrains Mono',monospace", fontSize: 10 }}>{log.time?.split(",")[1]?.trim() || ""}</span>
+                  <span style={{ color: "var(--txt3)", marginLeft: "auto", fontFamily: "'JetBrains Mono',monospace", fontSize: 10 }}>{fmtLogClock(log.time)}</span>
                 </div>
                 <div style={{ color: "var(--txt3)", marginTop: 1 }}>{log.user} - {log.details}</div>
               </div>
@@ -1469,7 +1480,7 @@ function PetMiniCard({ pet, db }) {
         <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 17, fontWeight: 700 }}>{pet.name}</div>
         <div style={{ fontSize: 12, color: "var(--txt2)", marginTop: 2 }}>{pet.breed} · {pet.type} · {calcAge(pet.dob)}</div>
         <div style={{ fontSize: 12, color: "var(--txt3)", marginTop: 3 }}>Last visit: {lastVisit ? fmt(lastVisit.date) : "No visits"}</div>
-        {pet.alerts.length > 0 && <div style={{ marginTop: 6 }}>{pet.alerts.slice(0, 1).map((a, i) => <span key={i} className="badge b-emg" style={{ fontSize: 10 }}>s ️ {a}</span>)}</div>}
+        {pet.alerts.length > 0 && <div style={{ marginTop: 6 }}>{pet.alerts.slice(0, 1).map((a, i) => <span key={i} className="badge b-emg" style={{ fontSize: 10 }}>⚠️ {a}</span>)}</div>}
       </div>
     </div>
   );
@@ -1480,7 +1491,8 @@ function PetMiniCard({ pet, db }) {
 // ...............................................................................
 
 function QueuePage({ setPage, setConsultVisit }) {
-  const { db, saveDB, toast } = useApp();
+  const { db, saveDB, toast, user } = useApp();
+  const isFrontDesk = user && user.role === "receptionist"; // front desk never opens the clinical consultation
   const [filter, setFilter] = useState("all");
   const [showWalkIn, setShowWalkIn] = useState(false);
   const [vitalsVisit, setVitalsVisit] = useState(null);
@@ -1561,20 +1573,20 @@ function QueuePage({ setPage, setConsultVisit }) {
                 </div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 2 }}>
-                {/* Vitals button ?" always available */}
+                {/* Vitals button - always available */}
                 <button className="btn btn-ghost btn-sm" onClick={() => openVitals(v)} title="Record vital signs" style={{ background: hasVitals ? "var(--teal-pale)" : undefined, borderColor: hasVitals ? "var(--teal)" : undefined, color: hasVitals ? "var(--teal)" : undefined }}>
                   {hasVitals ? "✅ Vitals" : "🌡️ Vitals"}
                 </button>
-                {v.status === "waiting" && (
+                {v.status === "waiting" && !isFrontDesk && (
                   <button className="btn btn-ink btn-sm" onClick={() => { updateStatus(v.id, "consulting"); setConsultVisit(v); setPage("consultation"); }}>🩺 Start</button>
                 )}
-                {v.status === "consulting" && (
+                {v.status === "consulting" && !isFrontDesk && (
                   <button className="btn btn-gold btn-sm" onClick={() => { setConsultVisit(v); setPage("consultation"); }}>🩺 Resume</button>
                 )}
-                {v.status === "consulting" && (
+                {v.status === "consulting" && !isFrontDesk && (
                   <button className="btn btn-ghost btn-sm" onClick={() => updateStatus(v.id, "billing")}>💳 Billing</button>
                 )}
-                {v.status === "billing" && (
+                {v.status === "billing" && !isFrontDesk && (
                   <button className="btn btn-teal btn-sm" onClick={() => updateStatus(v.id, "done")}>✅ Done</button>
                 )}
               </div>
@@ -1654,7 +1666,7 @@ function WalkInModal({ onClose }) {
   const add = () => {
     if (!selectedPet || !reason) { toast("Please select a pet and enter reason", "error"); return; }
     const caseNum = genCase(db);
-    db.visits.push({ id: db.visits.length + 1, petId: selectedPet.id, caseNum, date: todayStr(), status: emergency ? "waiting" : "waiting", reason, emergency, temp: "", hr: "", rr: "", weight: selectedPet.weight, diagnosis: "", notes: "", doctorId: 1 });
+    db.visits.push({ id: nextId(db.visits), petId: selectedPet.id, caseNum, date: todayStr(), status: emergency ? "waiting" : "waiting", reason, emergency, temp: "", hr: "", rr: "", weight: selectedPet.weight, diagnosis: "", notes: "", doctorId: 1 });
     saveDB();
     toast(`Walk-in registered: ${caseNum}`, "success");
     onClose();
@@ -1725,7 +1737,7 @@ function AppointmentsPage() {
   const bookApt = () => {
     if (!form.petId || !form.date || !form.time) { toast("Fill all required fields", "error"); return; }
     const pet = db.pets.find(p => p.id === parseInt(form.petId));
-    db.appointments.push({ id: db.appointments.length + 1, petId: parseInt(form.petId), ownerId: pet.ownerId, date: form.date, time: form.time, type: form.type, status: "confirmed", notes: form.notes });
+    db.appointments.push({ id: nextId(db.appointments), petId: parseInt(form.petId), ownerId: pet.ownerId, date: form.date, time: form.time, type: form.type, status: "confirmed", notes: form.notes });
     saveDB();
     toast("Appointment booked!", "success");
     setShowModal(false);
@@ -1847,7 +1859,8 @@ function AppointmentsPage() {
 // ...............................................................................
 
 function PatientsPage({ setPage, setConsultVisit, onAddVaccine }) {
-  const { db, saveDB, toast } = useApp();
+  const { db, saveDB, toast, user } = useApp();
+  const isFrontDesk = user && user.role === "receptionist"; // front desk sees owners and pets only, never clinical records
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
   const [showModal, setShowModal] = useState(false);
@@ -1863,10 +1876,10 @@ function PatientsPage({ setPage, setConsultVisit, onAddVaccine }) {
     if (!ownerName || !mobile || !petName) { toast("Fill all required fields", "error"); return; }
     let owner = db.owners.find(o => o.mobile === mobile);
     if (!owner) {
-      owner = { id: db.owners.length + 1, name: ownerName, mobile, email: form.email, address: form.address };
+      owner = { id: nextId(db.owners), name: ownerName, mobile, email: form.email, address: form.address };
       db.owners.push(owner);
     }
-    db.pets.push({ id: db.pets.length + 1, name: petName, type, breed, dob: dob || "2023-01-01", sex, weight: parseFloat(weight) || 0, ownerId: owner.id, photo: type === "Dog" ? "🐕" : type === "Cat" ? "🐱" : type === "Bird" ? "🦜" : type === "Rabbit" ? "🐇" : type === "Cattle" ? "🐄" : type === "Horse" ? "🐎" : type === "Reptile" ? "🦎" : type === "Fish" ? "🐟" : "🐾", alerts: [], color: "#f5f0e8" });
+    db.pets.push({ id: nextId(db.pets), name: petName, type, breed, dob: dob || "2023-01-01", sex, weight: parseFloat(weight) || 0, ownerId: owner.id, photo: type === "Dog" ? "🐕" : type === "Cat" ? "🐱" : type === "Bird" ? "🦜" : type === "Rabbit" ? "🐇" : type === "Cattle" ? "🐄" : type === "Horse" ? "🐎" : type === "Reptile" ? "🦎" : type === "Fish" ? "🐟" : "🐾", alerts: [], color: "#f5f0e8" });
     saveDB();
     toast(`${petName} registered successfully!`, "success");
     setShowModal(false);
@@ -1984,8 +1997,8 @@ function PetProfile({ pet, onBack, setPage, setConsultVisit }) {
           </div>
           {pet.alerts.length > 0 && (
             <div className="card" style={{ marginBottom: 14 }}>
-              <div className="card-head" style={{ padding: "12px 16px" }}><span className="card-title" style={{ fontSize: 14 }}>s ️ Medical Alerts</span></div>
-              <div style={{ padding: "10px 14px" }}>{pet.alerts.map((a, i) => <div key={i} className="alert a-err" style={{ marginBottom: 6 }}>s ️ {a}</div>)}</div>
+              <div className="card-head" style={{ padding: "12px 16px" }}><span className="card-title" style={{ fontSize: 14 }}>⚠️ Medical Alerts</span></div>
+              <div style={{ padding: "10px 14px" }}>{pet.alerts.map((a, i) => <div key={i} className="alert a-err" style={{ marginBottom: 6 }}>⚠️ {a}</div>)}</div>
             </div>
           )}
           <div className="card">
@@ -2004,29 +2017,28 @@ function PetProfile({ pet, onBack, setPage, setConsultVisit }) {
           </div>
         </div>
         <div>
-          <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+          {!isFrontDesk && <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
             <button className="btn btn-ink" onClick={() => {
             let v = db.visits.find(x => x.petId === pet.id && x.date === todayStr() && x.status !== "done");
             if (!v) {
               const caseNum = genCase(db);
-              v = { id: db.visits.length + 1, petId: pet.id, caseNum, date: todayStr(), status: "consulting", reason: "New consultation", emergency: false, temp: "", hr: "", rr: "", weight: pet.weight || "", diagnosis: "", notes: "", doctorId: 1 };
+              v = { id: nextId(db.visits), petId: pet.id, caseNum, date: todayStr(), status: "consulting", reason: "New consultation", emergency: false, temp: "", hr: "", rr: "", weight: pet.weight || "", diagnosis: "", notes: "", doctorId: 1 };
               db.visits.push(v);
-              localStorage.setItem(DB_KEY, JSON.stringify(db));
             } else {
               db.visits = db.visits.map(x => x.id === v.id ? { ...x, status: "consulting" } : x);
-              localStorage.setItem(DB_KEY, JSON.stringify(db));
             }
+            saveDB();
             setConsultVisit(v);
             setPage("consultation");
           }}>🩺 New Consultation</button>
             <button className="btn btn-ghost" onClick={() => onAddVaccine && onAddVaccine(pet.id)}>💉 Add Vaccine</button>
-          </div>
-          <div className="tabs">
+          </div>}
+          {!isFrontDesk && <div className="tabs">
             {[["history", "📜 History"], ["vaccines", "💉 Vaccines"], ["prescriptions", "💊 Prescriptions"]].map(([id, label]) => (
               <div key={id} className={`tab${tab === id ? " on" : ""}`} onClick={() => setTab(id)}>{label}</div>
             ))}
-          </div>
-          {tab === "history" && (
+          </div>}
+          {!isFrontDesk && tab === "history" && (
             <div className="tl">
               {visits.map((v, i) => (
                 <div key={v.id} className="tl-item">
@@ -2043,7 +2055,7 @@ function PetProfile({ pet, onBack, setPage, setConsultVisit }) {
               {visits.length === 0 && <div style={{ textAlign: "center", padding: "30px", color: "var(--txt3)" }}>No visits recorded yet</div>}
             </div>
           )}
-          {tab === "vaccines" && (
+          {!isFrontDesk && tab === "vaccines" && (
             <div>
               {vaccs.map(v => (
                 <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 16px", background: "var(--white)", borderRadius: "var(--r)", border: "1px solid var(--bdr2)", marginBottom: 10 }}>
@@ -2063,14 +2075,14 @@ function PetProfile({ pet, onBack, setPage, setConsultVisit }) {
               {vaccs.length === 0 && <div style={{ textAlign: "center", padding: "30px", color: "var(--txt3)" }}>No vaccinations on record</div>}
             </div>
           )}
-          {tab === "prescriptions" && (
+          {!isFrontDesk && tab === "prescriptions" && (
             <div>
               {prescriptions.map((rx, i) => {
                 const visit = db.visits.find(v => v.id === rx.visitId);
                 return (
                   <div key={rx.id} className="card" style={{ marginBottom: 14 }}>
                     <div className="card-head">
-                      <span className="card-title" style={{ fontSize: 14 }}>Y'S Prescription ?" {visit && fmt(visit.date)}</span>
+                      <span className="card-title" style={{ fontSize: 14 }}>💊 Prescription - {visit && fmt(visit.date)}</span>
                       <span className="case-pill">{visit?.caseNum}</span>
                     </div>
                     <div className="card-body" style={{ padding: "12px 16px" }}>
@@ -2117,7 +2129,7 @@ function ImageUploadBox({ label, files, onAdd, onRemove }) {
   return (
     <div style={{ marginTop: 10 }}>
       <div style={{ fontSize: 10.5, fontWeight: 800, color: "var(--txt3)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>
-        Y"Z Attach {label} Files
+        📎 Attach {label} Files
       </div>
       <div
         onClick={() => ref.current.click()}
@@ -2249,12 +2261,12 @@ function TreatmentSection({ title, icon, options, items, onAdd, onRemove, onUpda
           {/* Added items */}
           {items.map((item, idx) => (
             <div key={idx} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 2fr auto", gap: 8, marginBottom: 8, alignItems: "center" }}>
-              <div style={{ fontWeight: 700, fontSize: 13, color: "var(--ink)", paddingLeft: 4 }}>Y'S {item.name}</div>
+              <div style={{ fontWeight: 700, fontSize: 13, color: "var(--ink)", paddingLeft: 4 }}>💊 {item.name}</div>
               {[["dose", "Dose"], ["duration", "Duration"], ["instruction", "Instruction"]].map(([k, ph]) => (
                 <input key={k} style={{ padding: "6px 9px", border: "1.5px solid var(--bdr)", borderRadius: 7, fontSize: 12, fontFamily: "inherit", outline: "none" }}
                   placeholder={ph} value={item[k]} onChange={e => onUpdate(idx, k, e.target.value)} />
               ))}
-              <button onClick={() => onRemove(idx)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--red)", fontSize: 18, padding: "0 4px" }}>o.</button>
+              <button onClick={() => onRemove(idx)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--red)", fontSize: 18, padding: "0 4px" }}>✕</button>
             </div>
           ))}
         </div>
@@ -2283,7 +2295,7 @@ function ConsultationPage({ consultVisit }) {
   const removeImagingFile = (key, idx) => setImagingFiles(prev => ({ ...prev, [key]: prev[key].filter((_,i)=>i!==idx) }));
   const [dxText, setDxText] = useState(selVisit?.diagnosis || "");
 
-  // "?"? Treatment state (by category) "?"?
+  // ── Treatment state (by category) ──
   const [treatment, setTreatment] = useState({
     injections: [],
     abxInjection: [],
@@ -2300,10 +2312,10 @@ function ConsultationPage({ consultVisit }) {
   });
   const [treatNotes, setTreatNotes] = useState("");
 
-  // "?"? Medication (full prescription list) "?"?
+  // ── Medication (full prescription list) ──
   const [medicines, setMedicines] = useState([]);
 
-  // "?"? Vaccination state "?"?
+  // ── Vaccination state ──
   const [vaccForm, setVaccForm] = useState({ petType: "dog", deworm: false, dewormNote: "", tick: false, tickNote: "", dog9in1: false, dog9in1Note: "", dogRabies: false, dogRabiesNote: "", dogCorona: false, dogCoronaNote: "", dogKennel: false, dogKennelNote: "", catTricat: false, catTricatNote: "", catRabies: false, catRabiesNote: "", customVacc: "", reminderDays: "21", reminderNote: "" });
 
   // "?"? Billing "?"?
@@ -2313,7 +2325,7 @@ function ConsultationPage({ consultVisit }) {
   const [advice, setAdvice] = useState("");
   const [nextVisit, setNextVisit] = useState("");
 
-  // "?"? Sync when consultVisit prop changes (new patient started from Queue/PetProfile) "?"?
+  // ── Sync when consultVisit prop changes (new patient started from Queue/PetProfile) ──
   useEffect(() => {
     if (!consultVisit) return;
     const fresh = db.visits.find(v => v.id === consultVisit.id) || consultVisit;
@@ -2346,7 +2358,7 @@ function ConsultationPage({ consultVisit }) {
   if (!pet) return (
     <div className="fu">
       <div className="card" style={{ padding: 40, textAlign: "center", color: "var(--txt3)" }}>
-        <div style={{ fontSize: 50 }}>Y</div>
+        <div style={{ fontSize: 50 }}>🩺</div>
         <div style={{ fontSize: 18, fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, marginTop: 12 }}>No Active Consultation</div>
         <div style={{ marginTop: 8, fontSize: 14 }}>Select a patient from the Queue to start consultation.</div>
       </div>
@@ -2384,13 +2396,13 @@ function ConsultationPage({ consultVisit }) {
     db.visits = db.visits.map(v => v.id === selVisit.id ? { ...v, temp: vitals.temp, hr: vitals.hr, rr: vitals.rr, weight: vitals.weight, diagnosis: dxText, notes: advice, inventoryDeducted: true } : v);
     if (allMed.length > 0) {
       const existing = db.prescriptions.find(p => p.visitId === selVisit.id);
-      if (!existing) db.prescriptions.push({ id: db.prescriptions.length + 1, visitId: selVisit.id, medicines: allMed });
+      if (!existing) db.prescriptions.push({ id: nextId(db.prescriptions), visitId: selVisit.id, medicines: allMed });
       else db.prescriptions = db.prescriptions.map(p => p.visitId === selVisit.id ? { ...p, medicines: allMed } : p);
       // Deduct from inventory only once
       if (!selVisit.inventoryDeducted) {
         const { deducted, notFound } = deductFromInventory(allMed);
-        if (deducted.length) toast(`Y" Inventory updated: ${deducted.join(", ")}`, "success");
-        if (notFound.length) toast(`s ️ Not in inventory: ${notFound.join(", ")}`, "warning");
+        if (deducted.length) toast(`📦 Inventory updated: ${deducted.join(", ")}`, "success");
+        if (notFound.length) toast(`⚠️ Not in inventory: ${notFound.join(", ")}`, "warning");
       }
     }
     saveDB();
@@ -2403,7 +2415,7 @@ function ConsultationPage({ consultVisit }) {
     const addV = (flag, name, note) => {
       if (!flag) return;
       const nextDate = new Date(); nextDate.setDate(nextDate.getDate() + parseInt(vaccForm.reminderDays || 21));
-      db.vaccinations.push({ id: db.vaccinations.length + 1, petId: pet.id, vaccine: name + (note ? ` (${note})` : ""), given: todayStr(), next: nextDate.toISOString().split("T")[0], batch: "", status: "ok" });
+      db.vaccinations.push({ id: nextId(db.vaccinations), petId: pet.id, vaccine: name + (note ? ` (${note})` : ""), given: todayStr(), next: nextDate.toISOString().split("T")[0], batch: "", status: "ok" });
       // Deduct vaccine from inventory
       const invMatch = db.inventory.find(inv => inv.name.toLowerCase().includes(name.toLowerCase().split(" ")[0]) || inv.category === "Vaccine");
       if (invMatch && invMatch.stock > 0) {
@@ -2425,7 +2437,7 @@ function ConsultationPage({ consultVisit }) {
     addV(vaccForm.catRabies, "Anti-Rabies (Cat)", vaccForm.catRabiesNote);
     if (vaccForm.customVacc.trim()) addV(true, vaccForm.customVacc.trim(), "");
     saveDB();
-    if (vacc21.length) toast(`o. ${vacc21.length} vaccination(s) saved ?" reminders set for ${vaccForm.reminderDays} days`, "success");
+    if (vacc21.length) toast(`✅ ${vacc21.length} vaccination(s) saved - reminders set for ${vaccForm.reminderDays} days`, "success");
     else toast("No vaccines selected", "error");
   };
 
@@ -2446,7 +2458,7 @@ function ConsultationPage({ consultVisit }) {
         }
       });
     }
-    db.invoices.push({ id: db.invoices.length + 1, visitId: selVisit.id, petId: pet.id, ownerId: owner.id, date: todayStr(), items: billItems, total, status: "paid", method: payMethod });
+    db.invoices.push({ id: nextId(db.invoices), visitId: selVisit.id, petId: pet.id, ownerId: owner.id, date: todayStr(), items: billItems, total, status: "paid", method: payMethod });
     db.visits = db.visits.map(v => v.id === selVisit.id ? { ...v, status: "done" } : v);
     saveDB();
     toast(`✅ ₹${total} collected via ${payMethod}!`, "success");
@@ -2457,7 +2469,7 @@ function ConsultationPage({ consultVisit }) {
   const rxMeds = medicines.length > 0 ? medicines : allMedFromTreatment();
   const TABS = [["diagnosis", "🩺 Diagnosis"], ["treatment", "💊 Treatment"], ["medication", "📋 Medication"], ["vaccination", "💉 Vaccination"], ["prescription", "📄 Prescription"], ["billing", "💳 Billing"]];
 
-  // "?"? Inline style helpers "?"?
+  // ── Inline style helpers ──
   const inp = { width: "100%", padding: "9px 12px", border: "1.5px solid var(--bdr)", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", background: "var(--white)", color: "var(--txt)" };
   const lbl = { fontSize: 10.5, fontWeight: 800, color: "var(--txt2)", textTransform: "uppercase", letterSpacing: ".05em", display: "block", marginBottom: 4 };
 
@@ -2470,11 +2482,11 @@ function ConsultationPage({ consultVisit }) {
           <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
             <span style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 22, fontWeight: 700 }}>{pet.name}</span>
             <span className="case-pill">{selVisit.caseNum}</span>
-            {selVisit.emergency && <span className="badge b-emg">Ys EMERGENCY</span>}
+            {selVisit.emergency && <span className="badge b-emg">🚨 EMERGENCY</span>}
           </div>
-          <div style={{ opacity: .72, fontSize: 12, marginTop: 2 }}>{pet.breed} · {calcAge(pet.dob)} · {pet.sex} · Owner: {owner?.name} · Y"z {owner?.mobile}</div>
+          <div style={{ opacity: .72, fontSize: 12, marginTop: 2 }}>{pet.breed} · {calcAge(pet.dob)} · {pet.sex} · Owner: {owner?.name} · 📞 {owner?.mobile}</div>
         </div>
-        {pet.alerts.length > 0 && pet.alerts.map((a,i) => <span key={i} style={{ background: "rgba(255,60,50,.3)", border: "1px solid rgba(255,60,50,.5)", borderRadius: 7, padding: "5px 10px", fontSize: 12 }}>s ️ {a}</span>)}
+        {pet.alerts.length > 0 && pet.alerts.map((a,i) => <span key={i} style={{ background: "rgba(255,60,50,.3)", border: "1px solid rgba(255,60,50,.5)", borderRadius: 7, padding: "5px 10px", fontSize: 12 }}>⚠️ {a}</span>)}
         <div style={{ textAlign: "right", fontSize: 12 }}>
           <div style={{ opacity: .55 }}>{selVisit.reason}</div>
           <div style={{ fontWeight: 700, marginTop: 2 }}>{fmt(selVisit.date)}</div>
@@ -2484,7 +2496,7 @@ function ConsultationPage({ consultVisit }) {
       <div className="tabs">{TABS.map(([id, label]) => <div key={id} className={`tab${tab === id ? " on" : ""}`} onClick={() => setTab(id)}>{label}</div>)}</div>
 
       {/* ..........................................................
-          TAB 1 ?" DIAGNOSIS
+          TAB 1 - DIAGNOSIS
       .......................................................... */}
       {tab === "diagnosis" && (
         <div className="fu">
@@ -2591,7 +2603,7 @@ function ConsultationPage({ consultVisit }) {
       )}
 
       {/* ..........................................................
-          TAB 2 ?" TREATMENT
+          TAB 2 - TREATMENT
       .......................................................... */}
       {tab === "treatment" && (
         <div className="fu">
@@ -2619,20 +2631,20 @@ function ConsultationPage({ consultVisit }) {
           <TreatmentSection title="Gastric / Acid Control" icon="❤️" options={[
             "Inj. Ranitidine","Inj. Pantoprazole"
           ]} items={treatment.gastric} onAdd={i=>addTx("gastric",i)} onRemove={idx=>removeTx("gastric",idx)} onUpdate={(idx,k,v)=>updateTx("gastric",idx,k,v)} />
-          <TreatmentSection title="Emergency / Critical Care Drugs" icon="s" options={[
+          <TreatmentSection title="Emergency / Critical Care Drugs" icon="⚡" options={[
             "Inj. Atropine","Inj. Dexamethasone","Inj. Botropase","Inj. Ethamsylate","Mannitol"
           ]} items={treatment.emergency} onAdd={i=>addTx("emergency",i)} onRemove={idx=>removeTx("emergency",idx)} onUpdate={(idx,k,v)=>updateTx("emergency",idx,k,v)} />
-          <TreatmentSection title="Diuretics" icon="Y'" options={[
+          <TreatmentSection title="Diuretics" icon="💧" options={[
             "Inj. Furosemide","Inj. Torsemide"
           ]} items={treatment.diuretic} onAdd={i=>addTx("diuretic",i)} onRemove={idx=>removeTx("diuretic",idx)} onUpdate={(idx,k,v)=>updateTx("diuretic",idx,k,v)} />
-          <TreatmentSection title="Fluids & Nutrition" icon="Y" options={[
-            "Normal Saline (NS)","Lactated Ringer?Ts Solution (RL)","DNS","D10","D25","Astymin","Vetplasma"
+          <TreatmentSection title="Fluids & Nutrition" icon="🧴" options={[
+            "Normal Saline (NS)","Lactated Ringer’s Solution (RL)","DNS","D10","D25","Astymin","Vetplasma"
           ]} items={treatment.fluids} onAdd={i=>addTx("fluids",i)} onRemove={idx=>removeTx("fluids",idx)} onUpdate={(idx,k,v)=>updateTx("fluids",idx,k,v)} />
-          <TreatmentSection title="Surgical / Clinical Consumables" icon="Y" options={[
+          <TreatmentSection title="Surgical / Clinical Consumables" icon="🧰" options={[
             "Absorbent Cotton Wool","Gauze Swab / Rolled Gauze","Bandage Rolls","Surgical Gloves","Disposable Gloves",
             "Syringes (2ml, 5ml, 10ml, 20ml, 50ml)","IV Sets / Pediatric Sets","IV Cannula (21G, 22G, 23G)","Scalp Vein Sets","Infant Feeding Tube"
           ]} items={treatment.consumables} onAdd={i=>addTx("consumables",i)} onRemove={idx=>removeTx("consumables",idx)} onUpdate={(idx,k,v)=>updateTx("consumables",idx,k,v)} />
-          <TreatmentSection title="Topical / Misc" icon="Y" options={[
+          <TreatmentSection title="Topical / Misc" icon="🧴" options={[
             "Lignocaine 2% Jelly","Surgical Spirit","Liquid Chloroform","D-Mag Spray"
           ]} items={treatment.topical} onAdd={i=>addTx("topical",i)} onRemove={idx=>removeTx("topical",idx)} onUpdate={(idx,k,v)=>updateTx("topical",idx,k,v)} />
           <div className="card" style={{ padding:"14px 18px", marginTop:4 }}>
@@ -2640,20 +2652,20 @@ function ConsultationPage({ consultVisit }) {
             <textarea style={{...inp, minHeight:70}} placeholder="Diet restriction, rest, wound care, follow-up instructions..." value={treatNotes} onChange={e=>setTreatNotes(e.target.value)} />
           </div>
           <div style={{ display:"flex", justifyContent:"space-between", marginTop:14 }}>
-            <button className="btn btn-ghost" onClick={()=>setTab("diagnosis")}>? Diagnosis</button>
-            <button className="btn btn-gold" onClick={()=>setTab("medication")}>Next: Medication List ?'</button>
+            <button className="btn btn-ghost" onClick={()=>setTab("diagnosis")}>← Diagnosis</button>
+            <button className="btn btn-gold" onClick={()=>setTab("medication")}>Next: Medication List →</button>
           </div>
         </div>
       )}
 
       {/* ..........................................................
-          TAB 3 ?" MEDICATION (manual full list)
+          TAB 3 - MEDICATION (manual full list)
       .......................................................... */}
       {tab === "medication" && (
         <div className="fu">
           <div className="card" style={{ marginBottom:16 }}>
             <div className="card-head">
-              <span className="card-title">Y'S Medication List</span>
+              <span className="card-title">💊 Medication List</span>
               <button className="btn btn-ghost btn-sm" onClick={()=>setMedicines([...medicines,{name:"",dose:"",duration:"",instruction:"",notes:""}])}>+ Add Row</button>
             </div>
             <div style={{ padding:"8px 16px" }}>
@@ -2664,14 +2676,14 @@ function ConsultationPage({ consultVisit }) {
                   <div style={{ fontSize:12, color:"var(--txt2)", marginBottom:8 }}>Auto-filled from Treatment tab:</div>
                   {allMedFromTreatment().map((m,i) => (
                     <div key={i} style={{ display:"grid", gridTemplateColumns:"2.5fr 1fr 1fr 2fr auto", gap:8, marginBottom:8, alignItems:"center" }}>
-                      <div style={{ fontWeight:700, fontSize:13, paddingLeft:4 }}>Y'S {m.name}</div>
+                      <div style={{ fontWeight:700, fontSize:13, paddingLeft:4 }}>💊 {m.name}</div>
                       {["dose","duration","instruction"].map(k => (
                         <input key={k} style={inp} value={m[k]||""} placeholder={k.charAt(0).toUpperCase()+k.slice(1)} readOnly />
                       ))}
                       <span/>
                     </div>
                   ))}
-                  <button className="btn btn-ghost btn-sm" style={{ marginTop:4 }} onClick={()=>setMedicines(allMedFromTreatment().map(m=>({...m})))}>o️ Edit These</button>
+                  <button className="btn btn-ghost btn-sm" style={{ marginTop:4 }} onClick={()=>setMedicines(allMedFromTreatment().map(m=>({...m})))}>✏️ Edit These</button>
                 </div>
               )}
               {medicines.map((m,i) => (
@@ -2692,12 +2704,12 @@ function ConsultationPage({ consultVisit }) {
                     <label style={lbl}>Instruction</label>
                     <input style={inp} value={m.instruction} onChange={e=>{const n=[...medicines];n[i].instruction=e.target.value;setMedicines(n);}} placeholder="After food, twice daily" />
                   </div>
-                  <button onClick={()=>setMedicines(medicines.filter((_,j)=>j!==i))} style={{ background:"none", border:"none", cursor:"pointer", color:"var(--red)", fontSize:20, paddingTop:14 }}>o.</button>
+                  <button onClick={()=>setMedicines(medicines.filter((_,j)=>j!==i))} style={{ background:"none", border:"none", cursor:"pointer", color:"var(--red)", fontSize:20, paddingTop:14 }}>✕</button>
                 </div>
               ))}
               {medicines.length === 0 && allMedFromTreatment().length === 0 && (
                 <div style={{ textAlign:"center", padding:"24px", color:"var(--txt3)" }}>
-                  <div style={{fontSize:36}}>Y'S</div>
+                  <div style={{fontSize:36}}>💊</div>
                   <div style={{marginTop:8}}>No medicines added yet. Add from Treatment tab or click "+ Add Row" above.</div>
                 </div>
               )}
@@ -2714,30 +2726,30 @@ function ConsultationPage({ consultVisit }) {
             </div>
           </div>
           <div style={{ display:"flex", justifyContent:"space-between", marginTop:14 }}>
-            <button className="btn btn-ghost" onClick={()=>setTab("treatment")}>? Treatment</button>
-            <button className="btn btn-gold" onClick={saveDiagnosis}>Save & View Prescription ?'</button>
+            <button className="btn btn-ghost" onClick={()=>setTab("treatment")}>← Treatment</button>
+            <button className="btn btn-gold" onClick={saveDiagnosis}>Save & View Prescription →</button>
           </div>
         </div>
       )}
 
       {/* ..........................................................
-          TAB 4 ?" VACCINATION
+          TAB 4 - VACCINATION
       .......................................................... */}
       {tab === "vaccination" && (
         <div className="fu">
-          <div className="alert a-info" style={{ marginBottom:16 }}>Y'? Select vaccines given today. Reminder will auto-schedule after <strong>{vaccForm.reminderDays} days</strong>. Each option has a notes box for lot/batch details.</div>
+          <div className="alert a-info" style={{ marginBottom:16 }}>💉 Select vaccines given today. Reminder will auto-schedule after <strong>{vaccForm.reminderDays} days</strong>. Each option has a notes box for lot/batch details.</div>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
 
             {/* Deworming & Tick */}
             <div className="card">
               <div className="card-head" style={{ background:"linear-gradient(135deg,#1d6a6a,#2d9c9c)", borderRadius:"var(--r-lg) var(--r-lg) 0 0" }}>
-                <span style={{ color:"#fff", fontFamily:"'Cormorant Garamond',serif", fontSize:16, fontWeight:700 }}>Y Preventive Treatments</span>
+                <span style={{ color:"#fff", fontFamily:"'Cormorant Garamond',serif", fontSize:16, fontWeight:700 }}>🪱 Preventive Treatments</span>
               </div>
               <div style={{ padding:"16px 18px" }}>
                 {[["deworm","Deworming","dewormNote","Common brands: Drontal, Fenbendazole, Pyrantel"],["tick","Tick / Flea Treatment","tickNote","Bravecto, NexGard, Frontline, Ivermectin"]].map(([key,label,noteKey,hint]) => (
                   <div key={key} style={{ marginBottom:14 }}>
                     <div onClick={()=>setVaccForm({...vaccForm,[key]:!vaccForm[key]})} style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer", padding:"11px 13px", borderRadius:9, border:`2px solid ${vaccForm[key]?"var(--teal)":"var(--bdr)"}`, background:vaccForm[key]?"var(--teal-pale)":"var(--white)", transition:"all .18s" }}>
-                      <div style={{ width:20, height:20, borderRadius:"50%", border:`2.5px solid ${vaccForm[key]?"var(--teal)":"var(--bdr)"}`, background:vaccForm[key]?"var(--teal)":"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{vaccForm[key] && <span style={{color:"#fff",fontSize:12,fontWeight:800}}>o"</span>}</div>
+                      <div style={{ width:20, height:20, borderRadius:"50%", border:`2.5px solid ${vaccForm[key]?"var(--teal)":"var(--bdr)"}`, background:vaccForm[key]?"var(--teal)":"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{vaccForm[key] && <span style={{color:"#fff",fontSize:12,fontWeight:800}}>✓</span>}</div>
                       <div><div style={{ fontWeight:800, fontSize:14, color:vaccForm[key]?"var(--teal)":"var(--txt)" }}>{label}</div><div style={{fontSize:11,color:"var(--txt3)",marginTop:1}}>{hint}</div></div>
                     </div>
                     <input style={{ ...inp, marginTop:7, fontSize:12 }} placeholder="Batch no., brand, dose, notes..." value={vaccForm[noteKey]} onChange={e=>setVaccForm({...vaccForm,[noteKey]:e.target.value})} />
@@ -2784,7 +2796,7 @@ function ConsultationPage({ consultVisit }) {
 
             {/* Custom + Reminder */}
             <div className="card">
-              <div className="card-head"><span className="card-title">z. Custom & Reminder Settings</span></div>
+              <div className="card-head"><span className="card-title">➕ Custom & Reminder Settings</span></div>
               <div style={{ padding:"16px 18px" }}>
                 <div style={{ marginBottom:14 }}>
                   <label style={lbl}>Add Custom Vaccine / Treatment</label>
@@ -2799,7 +2811,7 @@ function ConsultationPage({ consultVisit }) {
                     ))}
                   </div>
                   <div style={{ marginTop:8, padding:"9px 12px", background:"var(--gold-pale)", borderRadius:8, fontSize:12, color:"var(--gold-dim)", fontWeight:600 }}>
-                    Y". Next reminder date: <strong>{(() => { const d=new Date(); d.setDate(d.getDate()+parseInt(vaccForm.reminderDays||21)); return fmt(d.toISOString().split("T")[0]); })()}</strong>
+                    📅 Next reminder date: <strong>{(() => { const d=new Date(); d.setDate(d.getDate()+parseInt(vaccForm.reminderDays||21)); return fmt(d.toISOString().split("T")[0]); })()}</strong>
                   </div>
                 </div>
                 <div>
@@ -2810,17 +2822,17 @@ function ConsultationPage({ consultVisit }) {
             </div>
           </div>
           <div style={{ display:"flex", justifyContent:"space-between", marginTop:14 }}>
-            <button className="btn btn-ghost" onClick={()=>setTab("medication")}>? Medication</button>
+            <button className="btn btn-ghost" onClick={()=>setTab("medication")}>← Medication</button>
             <div style={{ display:"flex", gap:10 }}>
-              <button className="btn btn-teal" onClick={saveVaccinations}>Y'? Save Vaccinations & Set Reminder</button>
-              <button className="btn btn-gold" onClick={()=>setTab("prescription")}>Next: Prescription ?'</button>
+              <button className="btn btn-teal" onClick={saveVaccinations}>💉 Save Vaccinations & Set Reminder</button>
+              <button className="btn btn-gold" onClick={()=>setTab("prescription")}>Next: Prescription →</button>
             </div>
           </div>
         </div>
       )}
 
       {/* ..........................................................
-          TAB 5 ?" PRESCRIPTION
+          TAB 5 - PRESCRIPTION
       .......................................................... */}
       {tab === "prescription" && (
         <div className="fu">
@@ -2829,11 +2841,11 @@ function ConsultationPage({ consultVisit }) {
               <div className="rx-hd">
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
                   <div style={{ display:"flex", gap:12, alignItems:"center" }}>
-                    <div style={{ fontSize:36 }}>Y</div>
+                    <div style={{ fontSize:36 }}>🐾</div>
                     <div>
                       <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:22, fontWeight:700 }}>{db.clinicSettings.name}</div>
                       <div style={{ fontSize:12, opacity:.8 }}>{db.clinicSettings.doctor}</div>
-                      <div style={{ fontSize:11, opacity:.6, marginTop:2 }}>Y" {db.clinicSettings.address} · Y"z {db.clinicSettings.phone}</div>
+                      <div style={{ fontSize:11, opacity:.6, marginTop:2 }}>📍 {db.clinicSettings.address} · 📞 {db.clinicSettings.phone}</div>
                     </div>
                   </div>
                   <div style={{ textAlign:"right" }}>
@@ -2851,12 +2863,12 @@ function ConsultationPage({ consultVisit }) {
                 {/* Vitals in prescription */}
                 {(vitals.temp||vitals.hr||vitals.rr) && (
                   <div style={{ display:"flex", gap:18, marginBottom:14, padding:"9px 13px", background:"var(--canvas)", borderRadius:8, fontSize:12, color:"var(--txt2)" }}>
-                    {vitals.temp && <span>YO️ <strong>Temp:</strong> {vitals.temp}°F</span>}
+                    {vitals.temp && <span>🌡️ <strong>Temp:</strong> {vitals.temp}°F</span>}
                     {vitals.hr && <span>❤️ <strong>HR:</strong> {vitals.hr}bpm</span>}
-                    {vitals.rr && <span>Y <strong>RR:</strong> {vitals.rr}/min</span>}
+                    {vitals.rr && <span>🫁 <strong>RR:</strong> {vitals.rr}/min</span>}
                   </div>
                 )}
-                <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:30, color:"var(--ink)", marginBottom:14 }}>"z</div>
+                <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:30, color:"var(--ink)", marginBottom:14 }}>℞</div>
                 {rxMeds.length > 0 ? rxMeds.map((m,i) => (
                   <div key={i} style={{ borderBottom:"1px dashed var(--bdr)", paddingBottom:10, marginBottom:10, display:"flex", gap:10 }}>
                     <div style={{ fontWeight:800, color:"var(--ink)", minWidth:20 }}>{i+1}.</div>
@@ -2874,7 +2886,7 @@ function ConsultationPage({ consultVisit }) {
                 {/* Imaging attachments */}
                 {Object.entries(imagingFiles).some(([,files]) => files.length > 0) && (
                   <div style={{ marginTop:14, borderTop:"1px dashed var(--bdr)", paddingTop:10 }}>
-                    <div style={{ fontSize:11, fontWeight:800, color:"var(--txt3)", textTransform:"uppercase", marginBottom:8 }}>Y"Z Attached Imaging Files</div>
+                    <div style={{ fontSize:11, fontWeight:800, color:"var(--txt3)", textTransform:"uppercase", marginBottom:8 }}>📎 Attached Imaging Files</div>
                     <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
                       {Object.entries(imagingFiles).flatMap(([key, files]) => files.map((f,i) => (
                         <div key={key+i} style={{ display:"flex", alignItems:"center", gap:6, background:"var(--canvas)", borderRadius:7, padding:"5px 9px", fontSize:11, border:"1px solid var(--bdr)" }}>
@@ -2903,16 +2915,16 @@ function ConsultationPage({ consultVisit }) {
                 const owner = db.owners.find(o => o.id === pet?.ownerId);
                 const rxMeds = (db.prescriptions.find(p => p.visitId === selVisit?.id)?.medicines) || [];
                 openPrescriptionPrint({ clinic: db.clinicSettings, pet, owner, visit: selVisit, medicines: rxMeds });
-              }}>Y-️ Print Prescription</button>
-              <button className="btn btn-ghost" onClick={()=>setTab("vaccination")}>? Vaccination</button>
-              <button className="btn btn-gold" onClick={()=>setTab("billing")}>Next: Billing ?'</button>
+              }}>🖨️ Print Prescription</button>
+              <button className="btn btn-ghost" onClick={()=>setTab("vaccination")}>← Vaccination</button>
+              <button className="btn btn-gold" onClick={()=>setTab("billing")}>Next: Billing →</button>
             </div>
           </div>
         </div>
       )}
 
       {/* ..........................................................
-          TAB 6 ?" BILLING
+          TAB 6 - BILLING
       .......................................................... */}
       {tab === "billing" && (
         <div className="fu" style={{ display:"grid", gridTemplateColumns:"1fr 340px", gap:20 }}>
@@ -2924,32 +2936,32 @@ function ConsultationPage({ consultVisit }) {
             <div className="card-body">
               {/* Auto-add from medicines */}
               {rxMeds.length > 0 && billItems.length === 1 && (
-                <button className="btn btn-ghost btn-sm" style={{ marginBottom:12 }} onClick={() => setBillItems([billItems[0], ...rxMeds.map(m => ({ name: m.name, qty: 1, rate: 80, amt: 80 })), { name:"Vaccination", qty:1, rate:300, amt:300 }])}>s Auto-fill from Prescription</button>
+                <button className="btn btn-ghost btn-sm" style={{ marginBottom:12 }} onClick={() => setBillItems([billItems[0], ...rxMeds.map(m => ({ name: m.name, qty: 1, rate: 80, amt: 80 })), { name:"Vaccination", qty:1, rate:300, amt:300 }])}>⚡ Auto-fill from Prescription</button>
               )}
               {/* Inventory stock check */}
               {billItems.length > 1 && (
                 <div style={{ marginBottom: 14, background: "var(--canvas)", borderRadius: 9, padding: "10px 14px", border: "1px solid var(--bdr2)" }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: "var(--txt2)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>Y" Inventory Stock Check</div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "var(--txt2)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>📦 Inventory Stock Check</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                     {billItems.filter(i => i.name && i.name !== "Consultation Fee" && i.name !== "Consultation").map((item, idx) => {
                       const inv = db.inventory.find(inv => inv.name.toLowerCase().includes(item.name.toLowerCase().split(" ")[0]));
-                      if (!inv) return <span key={idx} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 12, background: "#fff8e8", border: "1px solid #f0c060", color: "#7a4a00" }}>s ️ {item.name}: not in inventory</span>;
+                      if (!inv) return <span key={idx} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 12, background: "#fff8e8", border: "1px solid #f0c060", color: "#7a4a00" }}>⚠️ {item.name}: not in inventory</span>;
                       const ok = inv.stock >= (item.qty || 1);
-                      return <span key={idx} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 12, background: ok ? "#e8f5ee" : "#fdf0ee", border: `1px solid ${ok ? "#80d090" : "#f0a090"}`, color: ok ? "#1a5c38" : "#900" }}>{ok ? "o." : "s ️"} {inv.name}: {inv.stock} {inv.unit}</span>;
+                      return <span key={idx} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 12, background: ok ? "#e8f5ee" : "#fdf0ee", border: `1px solid ${ok ? "#80d090" : "#f0a090"}`, color: ok ? "#1a5c38" : "#900" }}>{ok ? "✅" : "⚠️"} {inv.name}: {inv.stock} {inv.unit}</span>;
                     })}
                   </div>
                 </div>
               )}
               <table>
-                <thead><tr><th>Item / Service</th><th style={{textAlign:"right"}}>Qty</th><th style={{textAlign:"right"}}>Rate (,)</th><th style={{textAlign:"right"}}>Amount (,)</th><th></th></tr></thead>
+                <thead><tr><th>Item / Service</th><th style={{textAlign:"right"}}>Qty</th><th style={{textAlign:"right"}}>Rate (₹)</th><th style={{textAlign:"right"}}>Amount (₹)</th><th></th></tr></thead>
                 <tbody>
                   {billItems.map((item,i) => (
                     <tr key={i}>
                       <td><input className="inp" value={item.name} onChange={e=>{const n=[...billItems];n[i].name=e.target.value;setBillItems(n);}} style={{padding:"6px 10px"}} /></td>
                       <td style={{textAlign:"right"}}><input className="inp" type="number" value={item.qty} style={{width:60,textAlign:"right",padding:"6px 8px"}} onChange={e=>{const n=[...billItems];n[i].qty=parseInt(e.target.value)||1;n[i].amt=n[i].qty*n[i].rate;setBillItems([...n]);}} /></td>
                       <td style={{textAlign:"right"}}><input className="inp" type="number" value={item.rate} style={{width:80,textAlign:"right",padding:"6px 8px"}} onChange={e=>{const n=[...billItems];n[i].rate=parseFloat(e.target.value)||0;n[i].amt=n[i].qty*n[i].rate;setBillItems([...n]);}} /></td>
-                      <td style={{textAlign:"right",fontWeight:700}}>,{item.amt}</td>
-                      <td><button style={{background:"none",border:"none",cursor:"pointer",color:"var(--red)",fontSize:16}} onClick={()=>setBillItems(billItems.filter((_,j)=>j!==i))}>o.</button></td>
+                      <td style={{textAlign:"right",fontWeight:700}}>₹{item.amt}</td>
+                      <td><button style={{background:"none",border:"none",cursor:"pointer",color:"var(--red)",fontSize:16}} onClick={()=>setBillItems(billItems.filter((_,j)=>j!==i))}>✕</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -2960,12 +2972,12 @@ function ConsultationPage({ consultVisit }) {
             <div className="card" style={{ marginBottom:14 }}>
               <div className="card-head"><span className="card-title">Summary</span></div>
               <div className="card-body">
-                {[["Subtotal",`,${total}`],["Tax (0%)",",0"],["Discount",",0"]].map(([k,v]) => (
+                {[["Subtotal",`₹${total}`],["Tax (0%)","₹0"],["Discount","₹0"]].map(([k,v]) => (
                   <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",fontSize:13,color:"var(--txt2)"}}><span>{k}</span><span>{v}</span></div>
                 ))}
                 <div style={{borderTop:"2px solid var(--bdr)",marginTop:8,paddingTop:12,display:"flex",justifyContent:"space-between"}}>
                   <span style={{fontWeight:700,fontSize:15}}>TOTAL</span>
-                  <span style={{fontFamily:"'Cormorant Garamond',serif",fontWeight:700,fontSize:28,color:"var(--ink)"}}>,{total}</span>
+                  <span style={{fontFamily:"'Cormorant Garamond',serif",fontWeight:700,fontSize:28,color:"var(--ink)"}}>₹{total}</span>
                 </div>
               </div>
             </div>
@@ -2983,10 +2995,10 @@ function ConsultationPage({ consultVisit }) {
                   <div className="alert a-ok">✅ Payment of ₹{total} collected via {payMethod}!</div>
                 ) : (
                   <button className="btn btn-gold" style={{width:"100%",justifyContent:"center",padding:"12px",fontSize:15}} onClick={collectPayment}>
-                    o. Collect ,{total} & Generate Invoice
+                    ✅ Collect ₹{total} & Generate Invoice
                   </button>
                 )}
-                <button className="btn btn-ghost btn-sm" style={{width:"100%",justifyContent:"center",marginTop:8}} onClick={()=>window.print()}>Y-️ Print Invoice</button>
+                <button className="btn btn-ghost btn-sm" style={{width:"100%",justifyContent:"center",marginTop:8}} onClick={()=>window.print()}>🖨️ Print Invoice</button>
               </div>
             </div>
           </div>
@@ -3015,9 +3027,9 @@ function VaccinationPage({ prefill, clearPrefill }) {
     if (!form.petId || !form.vaccine) { toast("Select pet and vaccine", "error"); return; }
     const nextDate = new Date(form.given);
     nextDate.setDate(nextDate.getDate() + parseInt(form.reminderDays || 365));
-    db.vaccinations.push({ id: db.vaccinations.length + 1, petId: parseInt(form.petId), vaccine: form.vaccine, given: form.given, next: nextDate.toISOString().split("T")[0], batch: form.batch, status: "ok", notes: form.notes });
+    db.vaccinations.push({ id: nextId(db.vaccinations), petId: parseInt(form.petId), vaccine: form.vaccine, given: form.given, next: nextDate.toISOString().split("T")[0], batch: form.batch, status: "ok", notes: form.notes });
     saveDB();
-    toast(`Y'? ${form.vaccine} saved ?" reminder in ${form.reminderDays} days`, "success");
+    toast(`💉 ${form.vaccine} saved - reminder in ${form.reminderDays} days`, "success");
     setShowModal(false);
     setForm({ petId: "", vaccine: "", given: todayStr(), batch: "", reminderDays: "21", notes: "" });
   };
@@ -3036,7 +3048,7 @@ function VaccinationPage({ prefill, clearPrefill }) {
     <div className="fu">
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:22 }}>
         <div><div className="pt">Vaccination Management</div><div className="ps">Track & schedule all vaccines with auto-reminders</div></div>
-        <button className="btn btn-gold" onClick={() => setShowModal(true)}>Y'? Record Vaccination</button>
+        <button className="btn btn-gold" onClick={() => setShowModal(true)}>💉 Record Vaccination</button>
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:18 }}>
         {[{l:"Due",v:dueVaccs.length,i:"⏰",c:"c4"},{l:"Overdue",v:overdueVaccs.length,i:"🔴",c:"c5"},{l:"Current",v:db.vaccinations.filter(v=>v.status==="ok").length,i:"✅",c:"c3"},{l:"Total Records",v:db.vaccinations.length,i:"📋",c:"c1"}].map((s,i)=>(
@@ -3049,11 +3061,11 @@ function VaccinationPage({ prefill, clearPrefill }) {
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:20 }}>
         {Object.entries(VACC_OPTIONS).map(([cat, vaccines]) => (
           <div key={cat} className="card">
-            <div className="card-head" style={{ padding:"11px 15px" }}><span className="card-title" style={{ fontSize:14 }}>{cat === "Dog Vaccines" ? "Y." : cat === "Cat Vaccines" ? "Y" : "Y>️"} {cat}</span></div>
+            <div className="card-head" style={{ padding:"11px 15px" }}><span className="card-title" style={{ fontSize:14 }}>{cat === "Dog Vaccines" ? "🐕" : cat === "Cat Vaccines" ? "🐱" : "🛡️"} {cat}</span></div>
             <div style={{ padding:"10px 14px" }}>
               {vaccines.map(v => (
                 <div key={v} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 0", borderBottom:"1px solid var(--bdr3)", fontSize:13 }}>
-                  <span style={{ fontSize:16 }}>Y'?</span>
+                  <span style={{ fontSize:16 }}>💉</span>
                   <span style={{ fontWeight:600 }}>{v}</span>
                 </div>
               ))}
@@ -3063,7 +3075,7 @@ function VaccinationPage({ prefill, clearPrefill }) {
       </div>
 
       <div className="card">
-        <div className="card-head"><span className="card-title">All Vaccination Records</span><button className="btn btn-ghost btn-sm">Y"S Export</button></div>
+        <div className="card-head"><span className="card-title">All Vaccination Records</span><button className="btn btn-ghost btn-sm">📊 Export</button></div>
         <div className="tbl-wrap">
           <table>
             <thead><tr><th>Pet</th><th>Owner</th><th>Vaccine</th><th>Given</th><th>Next Due</th><th>Reminder</th><th>Batch</th><th>Status</th><th>Action</th></tr></thead>
@@ -3097,13 +3109,13 @@ function VaccinationPage({ prefill, clearPrefill }) {
       {showModal && (
         <div className="ov" onClick={()=>setShowModal(false)}>
           <div className="modal modal-lg" onClick={e=>e.stopPropagation()}>
-            <div className="m-head"><span className="m-title">Y'? Record Vaccination</span><button className="btn-ico" onClick={()=>setShowModal(false)} style={{fontSize:16}}>o.</button></div>
+            <div className="m-head"><span className="m-title">💉 Record Vaccination</span><button className="btn-ico" onClick={()=>setShowModal(false)} style={{fontSize:16}}>✕</button></div>
             <div className="m-body">
               <div className="inp-g">
                 <label className="inp-lbl">Pet *</label>
                 <select className="inp" value={form.petId} onChange={e=>setForm({...form,petId:e.target.value})}>
                   <option value="">Choose pet...</option>
-                  {db.pets.map(p=><option key={p.id} value={p.id}>{p.photo} {p.name} ?" {db.owners.find(o=>o.id===p.ownerId)?.name}</option>)}
+                  {db.pets.map(p=><option key={p.id} value={p.id}>{p.photo} {p.name} - {db.owners.find(o=>o.id===p.ownerId)?.name}</option>)}
                 </select>
               </div>
               <div className="inp-g">
@@ -3131,12 +3143,12 @@ function VaccinationPage({ prefill, clearPrefill }) {
                   ))}
                 </div>
                 {form.given && <div style={{padding:"8px 11px",background:"var(--gold-pale)",borderRadius:7,fontSize:12,color:"var(--gold-dim)",fontWeight:600}}>
-                  Y". Reminder date: <strong>{(() => { const d = new Date(form.given); d.setDate(d.getDate()+parseInt(form.reminderDays||21)); return fmt(d.toISOString().split("T")[0]); })()}</strong>
+                  📅 Reminder date: <strong>{(() => { const d = new Date(form.given); d.setDate(d.getDate()+parseInt(form.reminderDays||21)); return fmt(d.toISOString().split("T")[0]); })()}</strong>
                 </div>}
               </div>
               <div className="inp-g"><label className="inp-lbl">Notes</label><textarea className="inp" rows={2} placeholder="Dosage, brand, owner instructions..." value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} /></div>
             </div>
-            <div className="m-foot"><button className="btn btn-ghost" onClick={()=>setShowModal(false)}>Cancel</button><button className="btn btn-gold" onClick={addVacc}>Y'? Save & Set Reminder</button></div>
+            <div className="m-foot"><button className="btn btn-ghost" onClick={()=>setShowModal(false)}>Cancel</button><button className="btn btn-gold" onClick={addVacc}>💉 Save & Set Reminder</button></div>
           </div>
         </div>
       )}
@@ -3163,7 +3175,7 @@ function InventoryPage() {
 
   const addItem = () => {
     if (!form.name || !form.stock) { toast("Fill required fields", "error"); return; }
-    db.inventory.push({ id: db.inventory.length + 1, ...form, stock: parseInt(form.stock), minStock: parseInt(form.minStock) || 10, price: parseFloat(form.price) || 0 });
+    db.inventory.push({ id: nextId(db.inventory), ...form, stock: parseInt(form.stock), minStock: parseInt(form.minStock) || 10, price: parseFloat(form.price) || 0 });
     saveDB();
     toast("Item added to inventory!", "success");
     setShowModal(false);
@@ -3231,12 +3243,12 @@ function InventoryPage() {
                   </td>
                   <td style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: "var(--txt3)" }}>{item.batch}</td>
                   <td style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: isValidDate(item.expiry) && new Date(item.expiry) < today ? "var(--red)" : isValidDate(item.expiry) && new Date(item.expiry) - today < 30*24*3600*1000 ? "var(--org)" : "inherit" }}>{item.expiry ? fmt(item.expiry) : "N/A"}</td>
-                  <td style={{ fontWeight: 700 }}>,{item.price}</td>
+                  <td style={{ fontWeight: 700 }}>₹{item.price}</td>
                   <td>
                     <div style={{ display: "flex", gap: 6 }}>
                       <button className="btn btn-teal btn-xs" onClick={() => updateStock(item.id, 10)}>+10</button>
-                      <button className="btn btn-ghost btn-xs" onClick={() => updateStock(item.id, -1)}>^'1</button>
-                      <button className="btn btn-ghost btn-xs" onClick={() => { if(window.confirm(`Delete ${item.name}?`)) { db.inventory = db.inventory.filter(i => i.id !== item.id); saveDB(); toast("Item removed", ""); } }}>Y-'️</button>
+                      <button className="btn btn-ghost btn-xs" onClick={() => updateStock(item.id, -1)}>−1</button>
+                      <button className="btn btn-ghost btn-xs" onClick={() => { if(window.confirm(`Delete ${item.name}?`)) { db.inventory = db.inventory.filter(i => i.id !== item.id); saveDB(); toast("Item removed", ""); } }}>🗑️</button>
                     </div>
                   </td>
                 </tr>
@@ -3263,7 +3275,7 @@ function InventoryPage() {
       {showModal && (
         <div className="ov" onClick={() => setShowModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="m-head"><span className="m-title">Add Inventory Item</span><button className="btn-ico" onClick={() => setShowModal(false)} style={{ fontSize: 16 }}>o.</button></div>
+            <div className="m-head"><span className="m-title">Add Inventory Item</span><button className="btn-ico" onClick={() => setShowModal(false)} style={{ fontSize: 16 }}>✕</button></div>
             <div className="m-body">
               <div className="inp-row cols2">
                 <div className="inp-g"><label className="inp-lbl">Item Name *</label><input className="inp" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
@@ -3271,13 +3283,13 @@ function InventoryPage() {
                 <div className="inp-g"><label className="inp-lbl">Stock Qty *</label><input type="number" className="inp" value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} /></div>
                 <div className="inp-g"><label className="inp-lbl">Unit</label><select className="inp" value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })}>{["tablets","capsules","vials","doses","ml","bags","sachets","units","bottles","strips"].map(u => <option key={u}>{u}</option>)}</select></div>
                 <div className="inp-g"><label className="inp-lbl">Min Stock Alert</label><input type="number" className="inp" value={form.minStock} onChange={e => setForm({ ...form, minStock: e.target.value })} /></div>
-                <div className="inp-g"><label className="inp-lbl">Price per Unit (,)</label><input type="number" className="inp" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} /></div>
+                <div className="inp-g"><label className="inp-lbl">Price per Unit (₹)</label><input type="number" className="inp" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} /></div>
                 <div className="inp-g"><label className="inp-lbl">Batch Number</label><input className="inp" value={form.batch} onChange={e => setForm({ ...form, batch: e.target.value })} /></div>
                 <div className="inp-g"><label className="inp-lbl">Expiry Date</label><input type="date" className="inp" value={form.expiry} onChange={e => setForm({ ...form, expiry: e.target.value })} /></div>
               </div>
               <div className="inp-g"><label className="inp-lbl">Vendor / Supplier</label><input className="inp" value={form.vendor} onChange={e => setForm({ ...form, vendor: e.target.value })} /></div>
             </div>
-            <div className="m-foot"><button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button><button className="btn btn-gold" onClick={addItem}>Y" Add to Inventory</button></div>
+            <div className="m-foot"><button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button><button className="btn btn-gold" onClick={addItem}>📦 Add to Inventory</button></div>
           </div>
         </div>
       )}
@@ -3311,7 +3323,7 @@ function BillingPage() {
     if (!newInv.petId) { toast("Select a pet", "error"); return; }
     const total = newInv.items.reduce((s, i) => s + i.amt, 0);
     const pet = db.pets.find(p => p.id === parseInt(newInv.petId));
-    db.invoices.push({ id: db.invoices.length + 1, petId: parseInt(newInv.petId), ownerId: pet?.ownerId, date: todayStr(), items: newInv.items, total, status: "paid", method: newInv.method, notes: newInv.notes });
+    db.invoices.push({ id: nextId(db.invoices), petId: parseInt(newInv.petId), ownerId: pet?.ownerId, date: todayStr(), items: newInv.items, total, status: "paid", method: newInv.method, notes: newInv.notes });
     saveDB(); toast("Invoice created!", "success"); setShowNew(false);
   };
 
@@ -3328,7 +3340,7 @@ function BillingPage() {
       .total{font-size:20px;font-weight:bold;text-align:right;padding:10px 0}
       @media print{button{display:none}}
     </style></head><body>
-    <div class="head"><div style="font-size:28px">Y</div><h2 style="margin:4px 0">${db.clinicSettings.name}</h2>
+    <div class="head"><div style="font-size:28px">🐾</div><h2 style="margin:4px 0">${db.clinicSettings.name}</h2>
     <div style="font-size:12px">${db.clinicSettings.address}</div>
     <div style="font-size:12px">${db.clinicSettings.phone} · ${db.clinicSettings.email}</div></div>
     <div style="display:flex;justify-content:space-between;margin-bottom:14px">
@@ -3348,7 +3360,7 @@ function BillingPage() {
   return (
     <div className="fu">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 22 }}>
-        <div><div className="pt">Billing & Invoices</div><div className="ps">Today's revenue: <strong style={{ color: "var(--ink)" }}>,{todayRev.toLocaleString()}</strong></div></div>
+        <div><div className="pt">Billing & Invoices</div><div className="ps">Today's revenue: <strong style={{ color: "var(--ink)" }}>₹{todayRev.toLocaleString()}</strong></div></div>
         <div style={{ display: "flex", gap: 10 }}>
           <button className="btn btn-ghost" onClick={() => {
             const rows = ["Inv#,Case#,Pet,Owner,Date,Total,Method,Status", ...db.invoices.map(inv => { const pet = db.pets.find(p=>p.id===inv.petId); const owner = db.owners.find(o=>o.id===inv.ownerId); const visit = db.visits.find(v=>v.id===inv.visitId); return `INV-${String(inv.id).padStart(3,"0")},${visit?.caseNum||""},${pet?.name||""},${owner?.name||""},${inv.date},${inv.total},${inv.method},${inv.status}`; })].join("\n");
@@ -3359,7 +3371,7 @@ function BillingPage() {
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 22 }}>
-        {[{ l: "Today's Revenue", v: `,${todayRev.toLocaleString()}`, i: "💰", c: "c2" }, { l: "Total Invoices", v: db.invoices.length, i: "🧾", c: "c1" }, { l: "Monthly Revenue", v: `,${monthRev.toLocaleString()}`, i: "📈", c: "c3" }, { l: "Pending", v: db.invoices.filter(i => i.status === "pending").length, i: "⏳", c: "c4" }].map((s, i) => (
+        {[{ l: "Today's Revenue", v: `₹${todayRev.toLocaleString()}`, i: "💰", c: "c2" }, { l: "Total Invoices", v: db.invoices.length, i: "🧾", c: "c1" }, { l: "Monthly Revenue", v: `₹${monthRev.toLocaleString()}`, i: "📈", c: "c3" }, { l: "Pending", v: db.invoices.filter(i => i.status === "pending").length, i: "⏳", c: "c4" }].map((s, i) => (
           <div key={i} className={`scard ${s.c}`}><div className="sico" style={{ fontSize: 22 }}>{s.i}</div><div className="sval" style={{ fontSize: 26 }}>{s.v}</div><div className="slbl">{s.l}</div></div>
         ))}
       </div>
@@ -3378,7 +3390,7 @@ function BillingPage() {
                     <td><div style={{ fontWeight: 700 }}>{pet?.photo} {pet?.name}</div><div style={{ fontSize: 11, color: "var(--txt3)" }}>{owner?.name} · {owner?.mobile}</div></td>
                     <td style={{ fontSize: 12 }}>{fmt(inv.date)}</td>
                     <td style={{ fontSize: 12, color: "var(--txt2)" }}>{inv.items.length} items · {inv.items.map(i=>i.name).slice(0,2).join(", ")}{inv.items.length>2?"...":""}</td>
-                    <td><span style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, fontSize: 18 }}>,{inv.total.toLocaleString()}</span></td>
+                    <td><span style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, fontSize: 18 }}>₹{inv.total.toLocaleString()}</span></td>
                     <td><span className="badge b-gold">{inv.method || "N/A"}</span></td>
                     <td><span className={`badge ${inv.status === "paid" ? "b-bill" : "b-wait"}`}>{inv.status === "paid" ? "✓ Paid" : "⏳ Pending"}</span></td>
                     <td><div style={{ display: "flex", gap: 5 }}>
@@ -3398,13 +3410,13 @@ function BillingPage() {
       {showNew && (
         <div className="ov" onClick={() => setShowNew(false)}>
           <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
-            <div className="m-head"><span className="m-title">Y New Invoice</span><button className="btn-ico" onClick={() => setShowNew(false)} style={{ fontSize: 16 }}>o.</button></div>
+            <div className="m-head"><span className="m-title">🧾 New Invoice</span><button className="btn-ico" onClick={() => setShowNew(false)} style={{ fontSize: 16 }}>✕</button></div>
             <div className="m-body">
               <div className="inp-row cols2" style={{ marginBottom: 14 }}>
                 <div className="inp-g"><label className="inp-lbl">Pet *</label>
                   <select className="inp" value={newInv.petId} onChange={e => { const pet = db.pets.find(p=>p.id===parseInt(e.target.value)); setNewInv({...newInv, petId: e.target.value, ownerId: pet?.ownerId}); }}>
                     <option value="">Select pet...</option>
-                    {db.pets.map(p => { const o = db.owners.find(o=>o.id===p.ownerId); return <option key={p.id} value={p.id}>{p.photo} {p.name} ?" {o?.name}</option>; })}
+                    {db.pets.map(p => { const o = db.owners.find(o=>o.id===p.ownerId); return <option key={p.id} value={p.id}>{p.photo} {p.name} - {o?.name}</option>; })}
                   </select>
                 </div>
                 <div className="inp-g"><label className="inp-lbl">Payment Method</label>
@@ -3419,24 +3431,24 @@ function BillingPage() {
                   <button className="btn btn-ghost btn-xs" onClick={addItem}>+ Add Row</button>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "3fr 1fr 1fr 1fr auto", gap: 8, marginBottom: 6 }}>
-                  {["Description", "Qty", "Rate (,)", "Amount", ""].map((h, i) => <div key={i} style={{ fontSize: 10, fontWeight: 800, color: "var(--txt3)", textTransform: "uppercase", padding: "0 4px" }}>{h}</div>)}
+                  {["Description", "Qty", "Rate (₹)", "Amount", ""].map((h, i) => <div key={i} style={{ fontSize: 10, fontWeight: 800, color: "var(--txt3)", textTransform: "uppercase", padding: "0 4px" }}>{h}</div>)}
                 </div>
                 {newInv.items.map((it, idx) => (
                   <div key={idx} style={{ display: "grid", gridTemplateColumns: "3fr 1fr 1fr 1fr auto", gap: 8, marginBottom: 7 }}>
                     <input className="inp" value={it.name} onChange={e => updateItem(idx, "name", e.target.value)} placeholder="Item description" />
                     <input type="number" className="inp" value={it.qty} onChange={e => updateItem(idx, "qty", e.target.value)} min="1" />
                     <input type="number" className="inp" value={it.rate} onChange={e => updateItem(idx, "rate", e.target.value)} />
-                    <input className="inp" value={`,${it.amt}`} readOnly style={{ background: "var(--canvas)", fontWeight: 700 }} />
-                    <button onClick={() => setNewInv({...newInv, items: newInv.items.filter((_,i)=>i!==idx)})} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--red)", fontSize: 18 }}>o.</button>
+                    <input className="inp" value={`₹${it.amt}`} readOnly style={{ background: "var(--canvas)", fontWeight: 700 }} />
+                    <button onClick={() => setNewInv({...newInv, items: newInv.items.filter((_,i)=>i!==idx)})} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--red)", fontSize: 18 }}>✕</button>
                   </div>
                 ))}
                 <div style={{ textAlign: "right", fontSize: 18, fontWeight: 700, fontFamily: "'Cormorant Garamond',serif", padding: "10px 14px", background: "var(--canvas)", borderRadius: 8, marginTop: 8 }}>
-                  Total: ,{newInv.items.reduce((s,i)=>s+i.amt,0).toLocaleString()}
+                  Total: ₹{newInv.items.reduce((s,i)=>s+i.amt,0).toLocaleString()}
                 </div>
               </div>
               <div className="inp-g"><label className="inp-lbl">Notes</label><input className="inp" value={newInv.notes} onChange={e => setNewInv({...newInv, notes: e.target.value})} placeholder="Optional notes..." /></div>
             </div>
-            <div className="m-foot"><button className="btn btn-ghost" onClick={() => setShowNew(false)}>Cancel</button><button className="btn btn-gold" onClick={saveInvoice}>Y' Save Invoice</button></div>
+            <div className="m-foot"><button className="btn btn-ghost" onClick={() => setShowNew(false)}>Cancel</button><button className="btn btn-gold" onClick={saveInvoice}>💾 Save Invoice</button></div>
           </div>
         </div>
       )}
@@ -3447,8 +3459,8 @@ function BillingPage() {
           <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
             <div className="m-head"><span className="m-title">Invoice INV-{String(viewInv.id).padStart(3,"0")}</span>
               <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn btn-ghost btn-sm" onClick={() => printInvoice(viewInv)}>Y-️ Print</button>
-                <button className="btn-ico" onClick={() => setViewInv(null)} style={{ fontSize: 16 }}>o.</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => printInvoice(viewInv)}>🖨️ Print</button>
+                <button className="btn-ico" onClick={() => setViewInv(null)} style={{ fontSize: 16 }}>✕</button>
               </div>
             </div>
             <div className="m-body">
@@ -3460,11 +3472,11 @@ function BillingPage() {
                   </div>
                   <table style={{ marginBottom: 12 }}><thead><tr><th>#</th><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
                     <tbody>{viewInv.items.map((it, i) => (
-                      <tr key={i}><td>{i+1}</td><td style={{ fontWeight: 600 }}>{it.name}</td><td>{it.qty}</td><td>,{it.rate}</td><td style={{ fontWeight: 700 }}>,{it.amt.toLocaleString()}</td></tr>
+                      <tr key={i}><td>{i+1}</td><td style={{ fontWeight: 600 }}>{it.name}</td><td>{it.qty}</td><td>₹{it.rate}</td><td style={{ fontWeight: 700 }}>₹{it.amt.toLocaleString()}</td></tr>
                     ))}</tbody>
                   </table>
-                  <div style={{ textAlign: "right", fontSize: 22, fontWeight: 700, fontFamily: "'Cormorant Garamond',serif", padding: "10px", background: "var(--gold-pale)", borderRadius: 8 }}>Total: ,{viewInv.total.toLocaleString()}</div>
-                  <div style={{ marginTop: 12, fontSize: 12, color: "var(--txt3)", textAlign: "center" }}>Thank you for choosing {db.clinicSettings.name}! Y</div>
+                  <div style={{ textAlign: "right", fontSize: 22, fontWeight: 700, fontFamily: "'Cormorant Garamond',serif", padding: "10px", background: "var(--gold-pale)", borderRadius: 8 }}>Total: ₹{viewInv.total.toLocaleString()}</div>
+                  <div style={{ marginTop: 12, fontSize: 12, color: "var(--txt3)", textAlign: "center" }}>Thank you for choosing {db.clinicSettings.name}! 🐾</div>
                 </>);
               })()}
             </div>
@@ -3515,19 +3527,18 @@ function PlannerPage() {
   const todayVisits = db.visits.filter(v => v.date === todayStr());
   const [showTask, setShowTask] = useState(false);
   const [task, setTask] = useState({ time: "", title: "", notes: "" });
-  const [tasks, setTasks] = useState(() => { try { return JSON.parse(localStorage.getItem("rpc_tasks") || "[]"); } catch { return []; } });
+  const tasks = db.tasks || [];
 
   const saveTask = () => {
     if (!task.title) { toast("Enter task title", "error"); return; }
-    const newTasks = [...tasks, { id: Date.now(), ...task, date: todayStr(), done: false }];
-    setTasks(newTasks);
-    localStorage.setItem("rpc_tasks", JSON.stringify(newTasks));
+    db.tasks = [...tasks, { id: nextId(tasks), ...task, date: todayStr(), done: false }];
+    saveDB();
     toast("Task added!", "success"); setShowTask(false);
     setTask({ time: "", title: "", notes: "" });
   };
   const toggleTask = (id) => {
-    const newTasks = tasks.map(t => t.id === id ? { ...t, done: !t.done } : t);
-    setTasks(newTasks); localStorage.setItem("rpc_tasks", JSON.stringify(newTasks));
+    db.tasks = tasks.map(t => t.id === id ? { ...t, done: !t.done } : t);
+    saveDB();
   };
   const todayTasks = tasks.filter(t => t.date === todayStr());
 
@@ -3561,7 +3572,7 @@ function PlannerPage() {
                 marginBottom: 10, opacity: status === "done" ? 0.65 : 1
               }}>
                 <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 14, color: "var(--ink-soft)", fontWeight: 700, minWidth: 44 }}>{a.time}</div>
-                <div style={{ fontSize: 26 }}>{pet?.photo || "Y"}</div>
+                <div style={{ fontSize: 26 }}>{pet?.photo || "🐾"}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 15, textDecoration: status === "done" ? "line-through" : "none" }}>{pet?.name}</div>
                   <div style={{ fontSize: 12, color: "var(--txt2)" }}>{a.type} {a.notes ? `· ${a.notes}` : ""}</div>
@@ -3576,12 +3587,12 @@ function PlannerPage() {
       {/* Additional Tasks */}
       {todayTasks.length > 0 && (
         <div className="card" style={{ marginTop: 16 }}>
-          <div className="card-head"><span className="card-title">Y"O Today's Tasks</span></div>
+          <div className="card-head"><span className="card-title">📌 Today's Tasks</span></div>
           <div className="card-body">
             {todayTasks.map(t => (
               <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--bdr3)" }}>
                 <div onClick={() => toggleTask(t.id)} style={{ width: 22, height: 22, borderRadius: "50%", border: `2.5px solid ${t.done ? "var(--grn)" : "var(--bdr)"}`, background: t.done ? "var(--grn)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
-                  {t.done && <span style={{ color: "#fff", fontSize: 12, fontWeight: 800 }}>o"</span>}
+                  {t.done && <span style={{ color: "#fff", fontSize: 12, fontWeight: 800 }}>✓</span>}
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700, textDecoration: t.done ? "line-through" : "none", color: t.done ? "var(--txt3)" : "var(--txt)" }}>{t.title}</div>
@@ -3596,7 +3607,7 @@ function PlannerPage() {
       {showTask && (
         <div className="ov" onClick={() => setShowTask(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="m-head"><span className="m-title">Y"O Add Task</span><button className="btn-ico" onClick={() => setShowTask(false)} style={{ fontSize: 16 }}>o.</button></div>
+            <div className="m-head"><span className="m-title">📌 Add Task</span><button className="btn-ico" onClick={() => setShowTask(false)} style={{ fontSize: 16 }}>✕</button></div>
             <div className="m-body">
               <div className="inp-row cols2" style={{ marginBottom: 12 }}>
                 <div className="inp-g"><label className="inp-lbl">Task *</label><input className="inp" value={task.title} onChange={e => setTask({...task, title: e.target.value})} placeholder="e.g. Call lab for results" /></div>
@@ -3656,9 +3667,9 @@ function TimelinePage() {
                   <div className="tl-dot" style={{ background: e.type === "vaccine" ? "var(--teal)" : e.type === "invoice" ? "var(--gold)" : "var(--ink)" }} />
                   <div className="tl-dt">{fmt(e.date)}</div>
                   <div className="tl-box">
-                    {e.type === "visit" && (<><div className="tl-t">Y {e.data.diagnosis || "Visit"}</div><div style={{ fontSize: 12, color: "var(--txt2)", marginTop: 2 }}>{e.data.reason}</div>{e.data.temp && <div style={{ fontSize: 11, color: "var(--txt3)", marginTop: 3 }}>T:{e.data.temp}°F · HR:{e.data.hr}bpm · {e.data.weight}kg</div>}<span className="case-pill" style={{ fontSize: 10, display: "inline-block", marginTop: 6 }}>{e.data.caseNum}</span></>)}
-                    {e.type === "vaccine" && (<><div className="tl-t">Y'? {e.data.vaccine}</div><div style={{ fontSize: 12, color: "var(--txt2)", marginTop: 2 }}>Batch: {e.data.batch} · Next: {fmt(e.data.next)}</div></>)}
-                    {e.type === "invoice" && (<><div className="tl-t">Y' Invoice ?" ,{e.data.total.toLocaleString()}</div><div style={{ fontSize: 12, color: "var(--txt2)", marginTop: 2 }}>Paid via {e.data.method} · {e.data.items.length} items</div></>)}
+                    {e.type === "visit" && (<><div className="tl-t">🩺 {e.data.diagnosis || "Visit"}</div><div style={{ fontSize: 12, color: "var(--txt2)", marginTop: 2 }}>{e.data.reason}</div>{e.data.temp && <div style={{ fontSize: 11, color: "var(--txt3)", marginTop: 3 }}>T:{e.data.temp}°F · HR:{e.data.hr}bpm · {e.data.weight}kg</div>}<span className="case-pill" style={{ fontSize: 10, display: "inline-block", marginTop: 6 }}>{e.data.caseNum}</span></>)}
+                    {e.type === "vaccine" && (<><div className="tl-t">💉 {e.data.vaccine}</div><div style={{ fontSize: 12, color: "var(--txt2)", marginTop: 2 }}>Batch: {e.data.batch} · Next: {fmt(e.data.next)}</div></>)}
+                    {e.type === "invoice" && (<><div className="tl-t">💳 Invoice - ₹{e.data.total.toLocaleString()}</div><div style={{ fontSize: 12, color: "var(--txt2)", marginTop: 2 }}>Paid via {e.data.method} · {e.data.items.length} items</div></>)}
                   </div>
                 </div>
               ))}
@@ -3697,7 +3708,7 @@ function RemindersPage() {
     <div className="fu">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 22 }}>
         <div><div className="pt">Automated Reminders</div><div className="ps">{overdueVaccs.length + followUps.length} reminders to send</div></div>
-        <button className="btn btn-gold" onClick={() => toast(`Sending all reminders via ${settings.reminderChannel || "Both"}...`, "success")}>Y" Send All Reminders</button>
+        <button className="btn btn-gold" onClick={() => toast(`Sending all reminders via ${settings.reminderChannel || "Both"}...`, "success")}>📤 Send All Reminders</button>
       </div>
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="card-head"><span className="card-title">Vaccination Reminders</span></div>
@@ -3711,8 +3722,8 @@ function RemindersPage() {
               <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 14px", border: "1px solid var(--bdr2)", borderRadius: "var(--r)", marginBottom: 10, background: isOverdue ? "var(--red-bg)" : "var(--org-bg)" }}>
                 <div style={{ fontSize: 24 }}>{pet?.photo}</div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700 }}>{pet?.name} ?" {v.vaccine}</div>
-                  <div style={{ fontSize: 12, color: "var(--txt2)", marginTop: 2 }}>{owner?.name} · Y"z {owner?.mobile} · Y" {owner?.email}</div>
+                  <div style={{ fontWeight: 700 }}>{pet?.name} - {v.vaccine}</div>
+                  <div style={{ fontSize: 12, color: "var(--txt2)", marginTop: 2 }}>{owner?.name} · 📞 {owner?.mobile} · 📧 {owner?.email}</div>
                   <div style={{ fontSize: 12, color: "var(--txt3)", marginTop: 2 }}>Due: {fmt(v.next)}</div>
                 </div>
                 <span className={`badge ${isOverdue ? "b-emg" : "b-wait"}`}>{isOverdue ? "Overdue" : `⏰ Due in ${daysLeft}d`}</span>
@@ -3727,13 +3738,13 @@ function RemindersPage() {
                       clinic_phone: db.clinicSettings?.phone || ""
                     }));
                     (function(num,txt){const wapp=`whatsapp://send?phone=91${num}&text=${txt}`;const web=`https://api.whatsapp.com/send?phone=91${num}&text=${txt}`;const a=document.createElement("a");a.href=wapp;a.click();setTimeout(()=>{if(!document.hidden)window.open(web,"_blank");},1500);})(owner?.mobile?.replace(/[^0-9]/g,"")|| "", msg);
-                  }} style={{ background: "#25d366", color: "#fff", border: "none" }}>Y' WhatsApp</button>
-                  <button className="btn btn-sm btn-ghost" onClick={() => toast(`Email sent to ${owner?.email}`, "success")}>Y" Email</button>
+                  }} style={{ background: "#25d366", color: "#fff", border: "none" }}>💬 WhatsApp</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => toast(`Email sent to ${owner?.email}`, "success")}>📧 Email</button>
                 </div>
               </div>
             );
           })}
-          {overdueVaccs.length === 0 && <div style={{ textAlign: "center", padding: 20, color: "var(--txt3)" }}>o. No vaccination reminders needed</div>}
+          {overdueVaccs.length === 0 && <div style={{ textAlign: "center", padding: 20, color: "var(--txt3)" }}>✅ No vaccination reminders needed</div>}
         </div>
       </div>
       <div className="card">
@@ -3746,8 +3757,8 @@ function RemindersPage() {
               <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 14px", border: "1px solid var(--bdr2)", borderRadius: "var(--r)", marginBottom: 10 }}>
                 <div style={{ fontSize: 24 }}>{pet?.photo}</div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700 }}>{pet?.name} ?" {a.type}</div>
-                  <div style={{ fontSize: 12, color: "var(--txt2)", marginTop: 2 }}>{owner?.name} · Y"z {owner?.mobile}</div>
+                  <div style={{ fontWeight: 700 }}>{pet?.name} - {a.type}</div>
+                  <div style={{ fontSize: 12, color: "var(--txt2)", marginTop: 2 }}>{owner?.name} · 📞 {owner?.mobile}</div>
                   <div style={{ fontSize: 12, color: "var(--txt3)", marginTop: 2 }}>Appointment: {fmt(a.date)} at {a.time}</div>
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
@@ -3761,8 +3772,8 @@ function RemindersPage() {
                       clinic_phone: db.clinicSettings?.phone || ""
                     }));
                     (function(num,txt){const wapp=`whatsapp://send?phone=91${num}&text=${txt}`;const web=`https://api.whatsapp.com/send?phone=91${num}&text=${txt}`;const a=document.createElement("a");a.href=wapp;a.click();setTimeout(()=>{if(!document.hidden)window.open(web,"_blank");},1500);})(owner?.mobile?.replace(/[^0-9]/g,"")|| "", msg);
-                  }} style={{ background: "#25d366", color: "#fff", border: "none" }}>Y' WhatsApp</button>
-                  <button className="btn btn-sm btn-ghost" onClick={() => toast(`Email sent to ${owner?.email}`, "success")}>Y" Email</button>
+                  }} style={{ background: "#25d366", color: "#fff", border: "none" }}>💬 WhatsApp</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => toast(`Email sent to ${owner?.email}`, "success")}>📧 Email</button>
                 </div>
               </div>
             );
@@ -3782,12 +3793,17 @@ function SettingsPage() {
     saveDB();
     toast("Settings saved!", "success");
   };
-  const deleteStaff = (u) => {
+  const deleteStaff = async (u) => {
     if (u.id === user?.id) { toast("You cannot delete your own account while logged in.", "error"); return; }
     if (!window.confirm(`Delete staff member ${u.name}?`)) return;
-    db.users = db.users.filter(x => x.id !== u.id);
-    saveDB();
-    toast("Staff member deleted.", "success");
+    try {
+      await apiRequest(`/users/${u.id}`, { method: "DELETE" });
+      db.users = await apiRequest("/users");
+      saveDB();
+      toast("Staff member deleted.", "success");
+    } catch (error) {
+      toast(error.message || "Could not delete staff member", "error");
+    }
   };
 
   return (
@@ -3808,12 +3824,12 @@ function SettingsPage() {
             {tab === "clinic" && (
               <>
                 <div style={{ display: "flex", gap: 18, alignItems: "center", marginBottom: 22, padding: "14px 16px", background: "var(--canvas)", borderRadius: "var(--r)", border: "1px solid var(--bdr)" }}>
-                  <div style={{ width: 70, height: 70, background: "var(--ink)", borderRadius: "var(--r)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32 }}>Y</div>
+                  <div style={{ width: 70, height: 70, background: "var(--ink)", borderRadius: "var(--r)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32 }}>🐾</div>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 16 }}>{settings.name}</div>
                     <div style={{ fontSize: 12, color: "var(--txt3)", marginTop: 2 }}>Clinic Logo</div>
                     <label className="btn btn-ghost btn-sm" style={{ marginTop: 8 }}>
-                      Y" Upload Logo
+                      📷 Upload Logo
                       <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (!file) return;
@@ -3848,14 +3864,14 @@ function SettingsPage() {
                   <div className="inp-g"><label className="inp-lbl">Specialization</label><input className="inp" value={settings.specialization || ""} onChange={e => setSettings({ ...settings, specialization: e.target.value })} /></div>
                   <div className="inp-g"><label className="inp-lbl">Experience (years)</label><input type="number" className="inp" value={settings.experience ?? 0} onChange={e => setSettings({ ...settings, experience: parseInt(e.target.value) || 0 })} /></div>
                   <div className="inp-g"><label className="inp-lbl">Signature (for Rx)</label><input className="inp" value={settings.signature || ""} onChange={e => setSettings({ ...settings, signature: e.target.value })} placeholder="Dr. Name, Qualification" /></div>
-                  <div className="inp-g"><label className="inp-lbl">Consultation Fee (,)</label><input type="number" className="inp" value={settings.consultFee} onChange={e => setSettings({ ...settings, consultFee: parseInt(e.target.value) })} /></div>
+                  <div className="inp-g"><label className="inp-lbl">Consultation Fee (₹)</label><input type="number" className="inp" value={settings.consultFee} onChange={e => setSettings({ ...settings, consultFee: parseInt(e.target.value) })} /></div>
                 </div>
                 <div className="inp-g"><label className="inp-lbl">Doctor Bio / Speciality Note</label><textarea className="inp" rows={3} value={settings.doctorBio || ""} onChange={e => setSettings({ ...settings, doctorBio: e.target.value })} /></div>
               </>
             )}
             {tab === "billing" && (
               <div className="inp-row cols2">
-                <div className="inp-g"><label className="inp-lbl">Default Consultation Fee (,)</label><input type="number" className="inp" value={settings.consultFee} onChange={e => setSettings({ ...settings, consultFee: parseInt(e.target.value) })} /></div>
+                <div className="inp-g"><label className="inp-lbl">Default Consultation Fee (₹)</label><input type="number" className="inp" value={settings.consultFee} onChange={e => setSettings({ ...settings, consultFee: parseInt(e.target.value) })} /></div>
                 <div className="inp-g"><label className="inp-lbl">Currency Symbol</label><input className="inp" value={settings.currency} onChange={e => setSettings({ ...settings, currency: e.target.value })} /></div>
                 <div className="inp-g"><label className="inp-lbl">Tax Rate (%)</label><input type="number" className="inp" value={settings.taxRate ?? 0} onChange={e => setSettings({ ...settings, taxRate: parseFloat(e.target.value) || 0 })} /></div>
                 <div className="inp-g"><label className="inp-lbl">Invoice Prefix</label><input className="inp" value={settings.invoicePrefix || "INV"} onChange={e => setSettings({ ...settings, invoicePrefix: e.target.value })} /></div>
@@ -3914,7 +3930,7 @@ function SettingsPage() {
                           <td style={{ fontSize: 12 }}>{u.mobile}</td>
                           <td><span className="badge b-bill">- Active</span></td>
                           <td><div style={{ display: "flex", gap: 6 }}>
-                            <button className="btn btn-ghost btn-xs" style={{ color: "var(--red)" }} onClick={() => deleteStaff(u)}>Y-'️</button>
+                            <button className="btn btn-ghost btn-xs" style={{ color: "var(--red)" }} onClick={() => deleteStaff(u)}>🗑️</button>
                           </div></td>
                         </tr>
                       ))}
@@ -3925,7 +3941,7 @@ function SettingsPage() {
             )}
             {tab === "security" && (
               <div>
-                <div className="alert a-info" style={{ marginBottom: 16 }}>Y"' Manage password, session timeouts, and access controls.</div>
+                <div className="alert a-info" style={{ marginBottom: 16 }}>🔒 Manage password, session timeouts, and access controls.</div>
                 <div className="inp-row cols2" style={{ marginBottom: 14 }}>
                   <div className="inp-g"><label className="inp-lbl">Current Password</label><input type="password" className="inp" placeholder="Enter current password" /></div>
                   <div className="inp-g"></div>
@@ -3933,7 +3949,7 @@ function SettingsPage() {
                   <div className="inp-g"><label className="inp-lbl">Confirm New Password</label><input type="password" className="inp" placeholder="Repeat new password" /></div>
                 </div>
                 <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-                  <button className="btn btn-ink btn-sm" onClick={() => toast("Password updated!", "success")}>Y"' Update Password</button>
+                  <button className="btn btn-ink btn-sm" onClick={() => toast("Password updated!", "success")}>🔑 Update Password</button>
                 </div>
                 <div style={{ borderTop: "1px solid var(--bdr2)", paddingTop: 16 }}>
                   <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Session Settings</div>
@@ -3952,8 +3968,8 @@ function SettingsPage() {
             )}
             {(tab !== "users") && (
               <div style={{ marginTop: 20, display: "flex", gap: 10, borderTop: "1px solid var(--bdr2)", paddingTop: 16 }}>
-                <button className="btn btn-ink" onClick={save}>Y' Save Changes</button>
-                <button className="btn btn-ghost" onClick={() => setSettings({ ...db.clinicSettings })}>? Reset</button>
+                <button className="btn btn-ink" onClick={save}>💾 Save Changes</button>
+                <button className="btn btn-ghost" onClick={() => setSettings({ ...db.clinicSettings })}>↺ Reset</button>
               </div>
             )}
           </div>
@@ -3973,19 +3989,14 @@ function SuppliersPage() {
   const [viewInv, setViewInv] = useState(null);
   const [form, setForm] = useState({ vendor: "", item: "", qty: "", unitPrice: "", total: "", date: todayStr(), status: "pending", notes: "" });
 
-  if (!db.supplierPayments) db.supplierPayments = [
-    { id: 1, vendor: "Pharma India", item: "Amoxicillin 250mg - 500 tabs", qty: 500, unitPrice: 7, total: 3500, date: "2026-03-01", status: "paid", notes: "Batch AMX2025C" },
-    { id: 2, vendor: "BioVet", item: "Rabies Vaccine - 30 doses", qty: 30, unitPrice: 320, total: 9600, date: "2026-03-05", status: "paid", notes: "Batch RBV2026A" },
-    { id: 3, vendor: "FluidCare", item: "Normal Saline 500ml - 20 bags", qty: 20, unitPrice: 50, total: 1000, date: "2026-03-10", status: "pending", notes: "" },
-    { id: 4, vendor: "VetPlus", item: "Ivermectin 1% - 10 vials", qty: 10, unitPrice: 110, total: 1100, date: "2026-03-08", status: "paid", notes: "" },
-  ];
+  if (!db.supplierPayments) db.supplierPayments = [];
   const payments = db.supplierPayments || [];
   const totalPaid = payments.filter(p => p.status === "paid").reduce((s, p) => s + p.total, 0);
   const totalPending = payments.filter(p => p.status === "pending").reduce((s, p) => s + p.total, 0);
 
   const addPayment = () => {
     if (!form.vendor || !form.item) { toast("Fill required fields", "error"); return; }
-    db.supplierPayments = [...payments, { id: payments.length + 1, ...form, qty: parseInt(form.qty) || 1, unitPrice: parseFloat(form.unitPrice) || 0, total: parseFloat(form.total) || 0 }];
+    db.supplierPayments = [...payments, { id: nextId(payments), ...form, qty: parseInt(form.qty) || 1, unitPrice: parseFloat(form.unitPrice) || 0, total: parseFloat(form.total) || 0 }];
     saveDB(); toast("Supplier payment recorded!", "success"); setShowModal(false);
     setForm({ vendor: "", item: "", qty: "", unitPrice: "", total: "", date: todayStr(), status: "pending", notes: "" });
   };
@@ -4003,24 +4014,24 @@ function SuppliersPage() {
             const rows = ["Date,Vendor,Item,Qty,Unit Price,Total,Status,Notes", ...payments.map(p => `${p.date},${p.vendor},${p.item},${p.qty},${p.unitPrice},${p.total},${p.status},${p.notes || ""}`)].join("\n");
             const a = document.createElement("a"); a.href = "data:text/csv;charset=utf-8,"+encodeURIComponent(rows); a.download = "supplier_payments.csv"; a.click();
             toast("CSV exported!", "success");
-          }}>Y"S Export CSV</button>
+          }}>📊 Export CSV</button>
           <button className="btn btn-gold" onClick={() => setShowModal(true)}>+ Record Purchase</button>
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 22 }}>
         {[
           { l: "Total Purchases", v: payments.length, i: "📦", c: "c1" },
-          { l: "Total Paid", v: `,${totalPaid.toLocaleString()}`, i: "o.", c: "c3" },
-          { l: "Pending Payment", v: `,${totalPending.toLocaleString()}`, i: "⏳", c: "c4" },
-          { l: "Vendors", v: [...new Set(payments.map(p => p.vendor))].length, i: "Y", c: "c2" },
+          { l: "Total Paid", v: `₹${totalPaid.toLocaleString()}`, i: "✅", c: "c3" },
+          { l: "Pending Payment", v: `₹${totalPending.toLocaleString()}`, i: "⏳", c: "c4" },
+          { l: "Vendors", v: [...new Set(payments.map(p => p.vendor))].length, i: "🏭", c: "c2" },
         ].map((s, i) => (
           <div key={i} className={`scard ${s.c}`}><div className="sico" style={{ fontSize: 22 }}>{s.i}</div><div className="sval" style={{ fontSize: 28 }}>{s.v}</div><div className="slbl">{s.l}</div></div>
         ))}
       </div>
       {payments.filter(p => p.status === "pending").map(p => (
         <div key={p.id} className="alert a-warn" style={{ marginBottom: 8 }}>
-          ⏳ <strong>{p.vendor}</strong> ?" ,{p.total.toLocaleString()} pending for <em>{p.item}</em>
-          <button className="btn btn-ghost btn-xs" style={{ marginLeft: 10 }} onClick={() => markPaid(p.id)}>o. Mark Paid</button>
+          ⏳ <strong>{p.vendor}</strong> - ₹{p.total.toLocaleString()} pending for <em>{p.item}</em>
+          <button className="btn btn-ghost btn-xs" style={{ marginLeft: 10 }} onClick={() => markPaid(p.id)}>✅ Mark Paid</button>
         </div>
       ))}
       <div className="card">
@@ -4034,13 +4045,13 @@ function SuppliersPage() {
                   <td><div style={{ fontWeight: 700 }}>{p.vendor}</div></td>
                   <td><div style={{ fontSize: 13 }}>{p.item}</div>{p.notes && <div style={{ fontSize: 11, color: "var(--txt3)" }}>{p.notes}</div>}</td>
                   <td style={{ fontFamily: "'JetBrains Mono',monospace" }}>{p.qty}</td>
-                  <td style={{ fontFamily: "'JetBrains Mono',monospace" }}>,{p.unitPrice}</td>
-                  <td><span style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, fontSize: 17 }}>,{p.total.toLocaleString()}</span></td>
-                  <td><span className={`badge ${p.status === "paid" ? "b-bill" : "b-wait"}`}>{p.status === "paid" ? "o. Paid" : "⏳ Pending"}</span></td>
+                  <td style={{ fontFamily: "'JetBrains Mono',monospace" }}>₹{p.unitPrice}</td>
+                  <td><span style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, fontSize: 17 }}>₹{p.total.toLocaleString()}</span></td>
+                  <td><span className={`badge ${p.status === "paid" ? "b-bill" : "b-wait"}`}>{p.status === "paid" ? "✅ Paid" : "⏳ Pending"}</span></td>
                   <td>
                     <div style={{ display: "flex", gap: 5 }}>
                       {p.status === "pending" && <button className="btn btn-teal btn-xs" onClick={() => markPaid(p.id)}>Mark Paid</button>}
-                      <button className="btn btn-ghost btn-xs">Y-️</button>
+                      <button className="btn btn-ghost btn-xs">🖨️</button>
                     </div>
                   </td>
                 </tr>
@@ -4053,7 +4064,7 @@ function SuppliersPage() {
       {showModal && (
         <div className="ov" onClick={() => setShowModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="m-head"><span className="m-title">Y" Record Supplier Purchase</span><button className="btn-ico" onClick={() => setShowModal(false)} style={{ fontSize: 16 }}>o.</button></div>
+            <div className="m-head"><span className="m-title">📦 Record Supplier Purchase</span><button className="btn-ico" onClick={() => setShowModal(false)} style={{ fontSize: 16 }}>✕</button></div>
             <div className="m-body">
               <div className="inp-row cols2">
                 <div className="inp-g"><label className="inp-lbl">Vendor / Supplier *</label>
@@ -4065,8 +4076,8 @@ function SuppliersPage() {
               <div className="inp-g"><label className="inp-lbl">Item / Description *</label><input className="inp" value={form.item} onChange={e => setForm({ ...form, item: e.target.value })} placeholder="e.g. Amoxicillin 250mg - 500 tablets" /></div>
               <div className="inp-row cols3">
                 <div className="inp-g"><label className="inp-lbl">Quantity</label><input type="number" className="inp" value={form.qty} onChange={e => setForm({ ...form, qty: e.target.value, total: (parseFloat(e.target.value) * parseFloat(form.unitPrice || 0)).toFixed(2) })} /></div>
-                <div className="inp-g"><label className="inp-lbl">Unit Price (,)</label><input type="number" className="inp" value={form.unitPrice} onChange={e => setForm({ ...form, unitPrice: e.target.value, total: (parseFloat(form.qty || 0) * parseFloat(e.target.value)).toFixed(2) })} /></div>
-                <div className="inp-g"><label className="inp-lbl">Total Amount (,) *</label><input type="number" className="inp" value={form.total} onChange={e => setForm({ ...form, total: e.target.value })} /></div>
+                <div className="inp-g"><label className="inp-lbl">Unit Price (₹)</label><input type="number" className="inp" value={form.unitPrice} onChange={e => setForm({ ...form, unitPrice: e.target.value, total: (parseFloat(form.qty || 0) * parseFloat(e.target.value)).toFixed(2) })} /></div>
+                <div className="inp-g"><label className="inp-lbl">Total Amount (₹) *</label><input type="number" className="inp" value={form.total} onChange={e => setForm({ ...form, total: e.target.value })} /></div>
               </div>
               <div className="inp-row cols2">
                 <div className="inp-g"><label className="inp-lbl">Payment Status</label>
@@ -4075,7 +4086,7 @@ function SuppliersPage() {
                 <div className="inp-g"><label className="inp-lbl">Notes (Batch, Invoice No.)</label><input className="inp" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} /></div>
               </div>
             </div>
-            <div className="m-foot"><button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button><button className="btn btn-gold" onClick={addPayment}>Y" Save Purchase</button></div>
+            <div className="m-foot"><button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button><button className="btn btn-gold" onClick={addPayment}>📦 Save Purchase</button></div>
           </div>
         </div>
       )}
@@ -4145,20 +4156,20 @@ function CertificatesPage() {
           <div className="card-head">
             <span className="card-title">{CERT_TYPES.find(c => c.id === certType)?.label}</span>
             <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn btn-ghost btn-sm" onClick={() => toast("Download as PDF or Print? Save as PDF", "")}>Download PDF</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => toast("Download as PDF or Print → Save as PDF", "")}>Download PDF</button>
               <button className="btn btn-gold btn-sm" onClick={printCert}>Print</button>
             </div>
           </div>
           <div className="card-body" id="cert-preview">
             {/* Header */}
             <div style={{ textAlign: "center", borderBottom: "3px double var(--ink)", paddingBottom: 16, marginBottom: 20 }}>
-              <div style={{ fontSize: 32, marginBottom: 6 }}>Y</div>
+              <div style={{ fontSize: 32, marginBottom: 6 }}>🐾</div>
               <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 26, fontWeight: 700, color: "var(--ink)" }}>{db.clinicSettings.name}</div>
               <div style={{ fontSize: 13, color: "var(--txt2)", marginTop: 3 }}>{db.clinicSettings.address}</div>
-              <div style={{ fontSize: 12, color: "var(--txt3)", marginTop: 2 }}>Y"z {db.clinicSettings.phone} · o?️ {db.clinicSettings.email}</div>
+              <div style={{ fontSize: 12, color: "var(--txt3)", marginTop: 2 }}>📞 {db.clinicSettings.phone} · ✉️ {db.clinicSettings.email}</div>
               <div style={{ fontSize: 11, color: "var(--txt3)", marginTop: 2 }}>Reg. No: {db.clinicSettings.regNum}</div>
             </div>
-            {!pet && <div style={{ textAlign: "center", padding: 40, color: "var(--txt3)" }}>Y'? Select a pet to generate the certificate</div>}
+            {!pet && <div style={{ textAlign: "center", padding: 40, color: "var(--txt3)" }}>👆 Select a pet to generate the certificate</div>}
             {pet && certType === "vaccination" && (
               <div>
                 <div style={{ textAlign: "center", marginBottom: 18 }}>
@@ -4255,7 +4266,7 @@ function CertificatesPage() {
                 <div style={{ fontSize: 48, marginBottom: 16 }}>{CERT_TYPES.find(c=>c.id===certType)?.icon}</div>
                 <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 20, fontWeight: 700, marginBottom: 8 }}>{CERT_TYPES.find(c=>c.id===certType)?.label} for {pet.name}</div>
                 <div style={{ fontSize: 13, color: "var(--txt2)", marginBottom: 20 }}>Pet: {pet.name} ({pet.breed}) · Owner: {owner?.name} · Date: {fmt(todayStr())}</div>
-                <button className="btn btn-gold" onClick={() => toast("Certificate generated and ready to print!", "success")}>o. Generate & Print</button>
+                <button className="btn btn-gold" onClick={() => toast("Certificate generated and ready to print!", "success")}>✅ Generate & Print</button>
               </div>
             )}
           </div>
@@ -4277,25 +4288,58 @@ function SystemAdminPage({ initialTab = "users" }) {
   const [form, setForm] = useState({ name: "", email: "", mobile: "", password: "", role: "doctor", active: true });
 
   const ROLE_COLORS = { doctor: "var(--teal)", receptionist: "var(--gold-dim)", admin: "var(--red)", owner: "var(--txt3)" };
-  const ROLE_ICONS = { doctor: "Y'?s.️", receptionist: "Y'?Y'", admin: "Y>️", owner: "Y " };
+  const ROLE_ICONS = { doctor: "👨‍⚕️", receptionist: "👩‍💼", admin: "🛡️", owner: "🏠" };
 
-  const saveUser = () => {
-    if (!form.name || !form.email) { toast("Name and email required", "error"); return; }
-    if (editUser) {
-      db.users = db.users.map(u => u.id === editUser.id ? { ...u, ...form } : u);
-      toast("User updated!", "success");
-    } else {
-      if (db.users.find(u => u.email === form.email)) { toast("Email already exists", "error"); return; }
-      db.users.push({ id: db.users.length + 1, ...form, avatar: form.name.slice(0,2).toUpperCase(), lastLogin: null });
-      toast("User created!", "success");
-    }
-    saveDB(); setShowAdd(false); setEditUser(null);
-    setForm({ name: "", email: "", mobile: "", password: "", role: "doctor", active: true });
+  const refreshUsers = async () => {
+    db.users = await apiRequest("/users");
+    saveDB();
   };
 
-  const toggleActive = (id) => {
-    db.users = db.users.map(u => u.id === id ? { ...u, active: !u.active } : u);
-    saveDB(); toast("User status updated!", "success");
+  const saveUser = async () => {
+    if (!form.name || !form.email) { toast("Name and email required", "error"); return; }
+    try {
+      if (editUser) {
+        const body = { name: form.name, email: form.email, role: form.role, mobile: form.mobile || "", active: form.active !== false };
+        if (form.password) {
+          if (form.password.length < 6) { toast("Password must be at least 6 characters", "error"); return; }
+          body.password = form.password;
+        }
+        await apiRequest(`/users/${editUser.id}`, { method: "PUT", body: JSON.stringify(body) });
+        toast("User updated!", "success");
+      } else {
+        if (!form.password || form.password.length < 6) { toast("Password (at least 6 characters) is required", "error"); return; }
+        await apiRequest("/users", { method: "POST", body: JSON.stringify({ name: form.name, email: form.email, password: form.password, role: form.role, mobile: form.mobile || "", active: form.active !== false }) });
+        toast("User created!", "success");
+      }
+      await refreshUsers();
+      setShowAdd(false); setEditUser(null);
+      setForm({ name: "", email: "", mobile: "", password: "", role: "doctor", active: true });
+    } catch (error) {
+      toast(error.message || "Could not save user", "error");
+    }
+  };
+
+  const toggleActive = async (id) => {
+    const u = db.users.find((x) => x.id === id);
+    if (!u) return;
+    try {
+      await apiRequest(`/users/${id}`, { method: "PUT", body: JSON.stringify({ name: u.name, email: u.email, role: u.role, mobile: u.mobile || "", active: u.active === false }) });
+      await refreshUsers();
+      toast("User status updated!", "success");
+    } catch (error) {
+      toast(error.message || "Could not update user", "error");
+    }
+  };
+
+  const removeUser = async (u) => {
+    if (!window.confirm(`Delete user ${u.name}?`)) return;
+    try {
+      await apiRequest(`/users/${u.id}`, { method: "DELETE" });
+      await refreshUsers();
+      toast("User deleted", "");
+    } catch (error) {
+      toast(error.message || "Could not delete user", "error");
+    }
   };
 
   const sessions = (db.sessions || []);
@@ -4314,10 +4358,10 @@ function SystemAdminPage({ initialTab = "users" }) {
       {/* Stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 22 }}>
         {[
-          { l: "Total Users", v: db.users.length, i: "Y'", c: "c1" },
+          { l: "Total Users", v: db.users.length, i: "👥", c: "c1" },
           { l: "Active Sessions", v: sessions.length || 1, i: "🕒", c: "c3" },
           { l: "Doctors", v: db.users.filter(u=>u.role==="doctor").length, i: "🩺", c: "c2" },
-          { l: "Pet Owners", v: db.users.filter(u=>u.role==="owner").length, i: "Y ", c: "c4" },
+          { l: "Pet Owners", v: db.users.filter(u=>u.role==="owner").length, i: "🏠", c: "c4" },
         ].map((s, i) => (
           <div key={i} className={`scard ${s.c}`}><div className="sico" style={{ fontSize: 22 }}>{s.i}</div><div className="sval" style={{ fontSize: 30 }}>{s.v}</div><div className="slbl">{s.l}</div></div>
         ))}
@@ -4357,8 +4401,8 @@ function SystemAdminPage({ initialTab = "users" }) {
                       <td style={{ fontSize: 11, color: "var(--txt3)", fontFamily: "'JetBrains Mono',monospace" }}>{u.lastLogin ? new Date(u.lastLogin).toLocaleDateString("en-IN") : "Never"}</td>
                       <td>
                         <div style={{ display: "flex", gap: 5 }}>
-                          <button className="btn btn-ghost btn-xs" onClick={() => { setEditUser(u); setForm({ name: u.name, email: u.email, mobile: u.mobile||"", password: "", role: u.role, active: u.active !== false }); setShowAdd(true); }}>o️ Edit</button>
-                          <button className="btn btn-ghost btn-xs" style={{ color: "var(--red)" }} onClick={() => { if(window.confirm(`Delete user ${u.name}?`)) { db.users = db.users.filter(x=>x.id!==u.id); saveDB(); toast("User deleted",""); } }}>Y-'️</button>
+                          <button className="btn btn-ghost btn-xs" onClick={() => { setEditUser(u); setForm({ name: u.name, email: u.email, mobile: u.mobile||"", password: "", role: u.role, active: u.active !== false }); setShowAdd(true); }}>✏️ Edit</button>
+                          <button className="btn btn-ghost btn-xs" style={{ color: "var(--red)" }} onClick={() => removeUser(u)}>🗑️</button>
                         </div>
                       </td>
                     </tr>
@@ -4393,14 +4437,14 @@ function SystemAdminPage({ initialTab = "users" }) {
             <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 10 }}>Session Management</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div style={{ padding: "14px 16px", background: "var(--white)", borderRadius: 10, border: "1px solid var(--bdr2)" }}>
-                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Y" Auto-Logout Settings</div>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>🔐 Auto-Logout Settings</div>
                 <select className="inp" style={{ marginBottom: 10 }}><option>After 30 minutes idle</option><option>After 1 hour idle</option><option>After 4 hours idle</option><option>Never (manual logout)</option></select>
                 <button className="btn btn-ink btn-sm" onClick={() => toast("Auto-logout settings saved!", "success")}>Save</button>
               </div>
               <div style={{ padding: "14px 16px", background: "var(--white)", borderRadius: 10, border: "1px solid var(--bdr2)" }}>
-                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Y"' Token Management</div>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>🔑 Token Management</div>
                 <div style={{ fontSize: 12, color: "var(--txt2)", marginBottom: 10 }}>Invalidate all sessions and force re-login for all users.</div>
-                <button className="btn btn-red btn-sm" onClick={() => { localStorage.removeItem("rpc_token"); toast("All sessions cleared!", "success"); setTimeout(() => window.location.reload(), 1000); }}>s ️ Invalidate All Sessions</button>
+                <button className="btn btn-red btn-sm" onClick={() => { localStorage.removeItem("rpc_token"); toast("All sessions cleared!", "success"); setTimeout(() => window.location.reload(), 1000); }}>⚠️ Invalidate All Sessions</button>
               </div>
             </div>
           </div>
@@ -4476,7 +4520,7 @@ function SystemAdminPage({ initialTab = "users" }) {
                   <tbody>
                     {actLog.map((log, i) => (
                       <tr key={i}>
-                        <td style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: "var(--txt3)", whiteSpace: "nowrap" }}>{log.time}</td>
+                        <td style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: "var(--txt3)", whiteSpace: "nowrap" }}>{fmtLogTime(log.time)}</td>
                         <td style={{ fontSize: 12, fontWeight: 600 }}>{log.user || "System"}</td>
                         <td><span className={`badge ${log.type === "error" ? "b-emg" : log.type === "warning" ? "b-wait" : "b-info"}`} style={{ fontSize: 10 }}>{log.action}</span></td>
                         <td style={{ fontSize: 12, color: "var(--txt2)" }}>{log.details}</td>
@@ -4494,7 +4538,7 @@ function SystemAdminPage({ initialTab = "users" }) {
       {showAdd && (
         <div className="ov" onClick={() => setShowAdd(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="m-head"><span className="m-title">{editUser ? "o️ Edit User" : "z. Add New User"}</span><button className="btn-ico" onClick={() => setShowAdd(false)} style={{ fontSize: 16 }}>o.</button></div>
+            <div className="m-head"><span className="m-title">{editUser ? "✏️ Edit User" : "➕ Add New User"}</span><button className="btn-ico" onClick={() => setShowAdd(false)} style={{ fontSize: 16 }}>✕</button></div>
             <div className="m-body">
               <div className="inp-row cols2">
                 <div className="inp-g"><label className="inp-lbl">Full Name *</label><input className="inp" value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Full name" /></div>
@@ -4505,7 +4549,7 @@ function SystemAdminPage({ initialTab = "users" }) {
               <div className="inp-g">
                 <label className="inp-lbl">Role *</label>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  {[["doctor","Doctor","Y'?s.️"],["receptionist","Receptionist","Y'?Y'"],["admin","Admin","Y>️"],["owner","Pet Owner","Y "]].map(([val,lbl,ico]) => (
+                  {[["doctor","Doctor","👨‍⚕️"],["receptionist","Receptionist","👩‍💼"],["admin","Admin","🛡️"],["owner","Pet Owner","🏠"]].map(([val,lbl,ico]) => (
                     <div key={val} onClick={() => setForm({...form, role: val})} style={{ border: `2px solid ${form.role===val?"var(--gold)":"var(--bdr)"}`, background: form.role===val?"var(--gold-pale)":"var(--white)", borderRadius: 9, padding: "10px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, transition: "all .15s" }}>
                       <span style={{ fontSize: 18 }}>{ico}</span>
                       <span style={{ fontSize: 13, fontWeight: 700, color: form.role===val?"var(--gold-dim)":"var(--txt)" }}>{lbl}</span>
@@ -4520,7 +4564,7 @@ function SystemAdminPage({ initialTab = "users" }) {
                 </label>
               </div>
             </div>
-            <div className="m-foot"><button className="btn btn-ghost" onClick={() => setShowAdd(false)}>Cancel</button><button className="btn btn-gold" onClick={saveUser}>{editUser ? "Y' Update User" : "o. Create User"}</button></div>
+            <div className="m-foot"><button className="btn btn-ghost" onClick={() => setShowAdd(false)}>Cancel</button><button className="btn btn-gold" onClick={saveUser}>{editUser ? "💾 Update User" : "✅ Create User"}</button></div>
           </div>
         </div>
       )}
@@ -4546,7 +4590,7 @@ function OwnerPortal({ page, user }) {
   // Book appointment modal
   const bookAppointment = async () => {
     if (!aptForm.petId || !aptForm.date) { toast("Select a pet and date", "error"); return; }
-    const newAppointment = { id: db.appointments.length + 1, petId: parseInt(aptForm.petId), ownerId: owner.id, date: aptForm.date, time: aptForm.time, type: aptForm.type, status: "pending", notes: aptForm.notes, source: "owner-portal" };
+    const newAppointment = { id: nextId(db.appointments), petId: parseInt(aptForm.petId), ownerId: owner.id, date: aptForm.date, time: aptForm.time, type: aptForm.type, status: "pending", notes: aptForm.notes, source: "owner-portal" };
     db.appointments.push(newAppointment);
     try {
       const created = await createAppointment(newAppointment);
@@ -4564,15 +4608,18 @@ function OwnerPortal({ page, user }) {
   };
 
   // Walk-in request modal
-  const requestWalkIn = () => {
+  const requestWalkIn = async () => {
     if (!walkPetId || !walkReason) { toast("Select a pet and describe the issue", "error"); return; }
-    const pet = db.pets.find(p => p.id === parseInt(walkPetId));
-    const caseNum = genCase(db);
-    db.visits.push({ id: db.visits.length + 1, petId: parseInt(walkPetId), caseNum, date: todayStr(), status: "waiting", reason: walkReason, emergency: false, temp: "", hr: "", rr: "", weight: pet?.weight || 0, diagnosis: "", notes: "", doctorId: 1, source: "owner-portal" });
-    saveDB();
-    toast(`✅ Walk-in registered! Case: ${caseNum}. Please come to the clinic.`, "success");
-    setShowWalkIn(false);
-    setWalkReason("");
+    try {
+      const created = await apiRequest("/visits", { method: "POST", body: JSON.stringify({ petId: parseInt(walkPetId), reason: walkReason }) });
+      db.visits.push({ id: created.id, petId: parseInt(walkPetId), caseNum: created.caseNum, date: todayStr(), status: "waiting", reason: walkReason, emergency: false, source: "owner-portal" });
+      saveDB();
+      toast(`✅ Walk-in registered! Case: ${created.caseNum}. Please come to the clinic.`, "success");
+      setShowWalkIn(false);
+      setWalkReason("");
+    } catch (error) {
+      toast(error.message || "Could not register walk-in", "error");
+    }
   };
 
   // Shared modals (rendered once, available across all pages)
@@ -4852,6 +4899,87 @@ export default function App() {
     } catch {}
   }, []);
 
+  // ── Server sync (delta) ────────────────────────────────────────────────
+  // Only rows that changed since the last successful sync are sent, and only ids
+  // that this browser deleted are removed. Saves run one at a time, in order.
+  const dbRef = useRef(db);
+  const userRef = useRef(null);
+  const syncedRef = useRef({});
+  const syncState = useRef({ promise: null, dirty: false, fails: 0, timer: null });
+
+  const indexRows = (rows) => {
+    const m = {};
+    (rows || []).forEach((r) => { if (r && r.id != null) m[r.id] = JSON.stringify(r); });
+    return m;
+  };
+  const markAllSynced = (snapshot) => {
+    const res = toServerResourceMap(snapshot);
+    const next = {};
+    Object.keys(res).forEach((t) => { next[t] = indexRows(res[t]); });
+    syncedRef.current = next;
+  };
+  const buildChanges = (snapshot, role) => {
+    const res = toServerResourceMap(snapshot);
+    const changes = {};
+    const indexes = {};
+    (MUTABLE_TABLES_BY_ROLE[role] || []).forEach((table) => {
+      const rows = res[table];
+      if (!rows) return;
+      const prev = syncedRef.current[table] || {};
+      const cur = indexRows(rows);
+      const upsert = rows.filter((r) => r && r.id != null && prev[r.id] !== cur[r.id]);
+      let remove = Object.keys(prev).filter((id) => !(id in cur)).map(Number);
+      // The audit trail is only ever emptied by an explicit "Clear Log", never by local trimming
+      if (table === "activity_log" && Object.keys(cur).length) remove = [];
+      if (table === "clinic_settings") remove = [];
+      if (upsert.length || remove.length) { changes[table] = { upsert, remove }; indexes[table] = cur; }
+    });
+    return { changes, indexes };
+  };
+
+  const runSync = useCallback(() => {
+    const s = syncState.current;
+    if (s.promise) { s.dirty = true; return s.promise; }
+    s.promise = (async () => {
+      const u = userRef.current;
+      if (!u || u.role === "owner") return true;
+      try {
+        do {
+          s.dirty = false;
+          const snapshot = dbRef.current;
+          const { changes, indexes } = buildChanges(snapshot, u.role);
+          if (!Object.keys(changes).length) break;
+          await apiRequest("/sync", { method: "PUT", body: JSON.stringify({ changes }) });
+          Object.keys(changes).forEach((t) => {
+            const prev = syncedRef.current[t] || {};
+            changes[t].upsert.forEach((r) => { prev[r.id] = indexes[t][r.id]; });
+            changes[t].remove.forEach((id) => { delete prev[id]; });
+            syncedRef.current[t] = prev;
+          });
+        } while (s.dirty);
+        s.fails = 0;
+        return true;
+      } catch (error) {
+        s.fails += 1;
+        if (error.status === 401) {
+          toast("Your session ended. Please sign in again.", "error");
+          clearStoredToken(); setUser(null);
+        } else if (error.status === 403 || error.status === 400) {
+          console.error("Sync rejected", error);
+          toast(`Server rejected a change: ${error.message}`, "error");
+        } else {
+          console.error("Background sync failed", error);
+          if (s.fails === 1) toast("Could not reach the server. Changes are kept and will be retried.", "warning");
+          clearTimeout(s.timer);
+          s.timer = setTimeout(() => { runSync(); }, Math.min(30000, 3000 * s.fails));
+        }
+        return false;
+      }
+    })().finally(() => { s.promise = null; });
+    return s.promise;
+  }, []);
+  const queueSync = useCallback(() => { runSync(); }, [runSync]);
+
   const hydrateSession = useCallback(async (session, options = {}) => {
     const token = session?.token || getStoredToken();
     if (!token) throw new Error("Missing session token");
@@ -4862,29 +4990,15 @@ export default function App() {
     const nextDb = normalizeDbSnapshot(bootstrap);
     localStorage.setItem(DB_KEY, JSON.stringify(nextDb));
     setStoredToken(token);
+    dbRef.current = nextDb;
+    userRef.current = freshUser;
+    markAllSynced(nextDb);
     setDB(nextDb);
     setUser(freshUser);
     setPage(options.page || (freshUser.role === "owner" ? "owner-home" : "dashboard"));
     loadSessions(freshUser, token);
     return { user: freshUser, db: nextDb };
   }, [loadSessions]);
-
-  const syncDbToServer = useCallback(async (snapshot) => {
-    if (!user || user.role === "owner") return;
-    const token = getStoredToken();
-    if (!token) return;
-    const resources = toServerResourceMap(snapshot);
-    const tables = MUTABLE_TABLES_BY_ROLE[user.role] || [];
-
-    await Promise.all(tables.map(async (table) => {
-      const rows = resources[table];
-      if (!rows) return;
-      await apiRequest(`/${table}`, {
-        method: "PUT",
-        body: JSON.stringify(rows),
-      }, token);
-    }));
-  }, [user]);
 
   // "?"? Restore session on mount "?"?
   useEffect(() => {
@@ -4922,11 +5036,41 @@ export default function App() {
   const saveDB = useCallback((nextDb = db) => {
     const snapshot = { ...nextDb };
     localStorage.setItem(DB_KEY, JSON.stringify(snapshot));
+    dbRef.current = snapshot;
     setDB(snapshot);
-    void syncDbToServer(snapshot).catch((error) => {
-      console.error("Background sync failed", error);
-    });
-  }, [db, syncDbToServer]);
+    queueSync();
+  }, [db, queueSync]);
+
+  // Pick up changes made by other staff while this tab is idle (only when nothing is waiting to be saved)
+  useEffect(() => {
+    if (!user || user.role === "owner") return undefined;
+    const id = setInterval(async () => {
+      const s = syncState.current;
+      if (document.visibilityState !== "visible" || s.promise) return;
+      if (Object.keys(buildChanges(dbRef.current, user.role).changes).length) return;
+      try {
+        const fresh = normalizeDbSnapshot(await apiRequest("/bootstrap"));
+        if (syncState.current.promise) return;
+        if (Object.keys(buildChanges(dbRef.current, user.role).changes).length) return;
+        if (JSON.stringify(toServerResourceMap(fresh)) === JSON.stringify(toServerResourceMap(dbRef.current))) return;
+        markAllSynced(fresh);
+        dbRef.current = fresh;
+        localStorage.setItem(DB_KEY, JSON.stringify(fresh));
+        setDB(fresh);
+      } catch { /* try again on the next tick */ }
+    }, 45000);
+    return () => clearInterval(id);
+  }, [user]);
+
+  // Warn before closing the tab while a save is still in flight
+  useEffect(() => {
+    const warn = (e) => {
+      const pending = syncState.current.promise || (userRef.current && Object.keys(buildChanges(dbRef.current, userRef.current.role).changes).length);
+      if (pending) { e.preventDefault(); e.returnValue = ""; }
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, []);
 
   const toast = useCallback((msg, type = "") => {
     const id = Date.now();
@@ -4939,7 +5083,8 @@ export default function App() {
   const logActivity = useCallback((action, details, type = "") => {
     const now = new Date();
     const entry = {
-      time: now.toLocaleString("en-IN"),
+      id: nextId(db.activityLog),
+      time: now.toISOString(),
       user: user?.name || "System",
       action,
       details,
@@ -4949,18 +5094,22 @@ export default function App() {
     db.activityLog.push(entry);
     if (db.activityLog.length > 200) db.activityLog = db.activityLog.slice(-200);
     localStorage.setItem(DB_KEY, JSON.stringify(db));
-  }, [user, db]);
+    queueSync();
+  }, [user, db, queueSync]);
 
   const doLogin = async (session) => {
     const result = await hydrateSession(session);
     toast(`Welcome back, ${result.user.name.split(" ")[0]}! 👋`, "success");
   };
 
-  const logout = (auto = false) => {
+  const logout = async (auto = false) => {
     if (user) {
       logActivity("LOGOUT", auto ? "Session auto-expired (idle timeout)" : "User signed out manually", auto ? "warning" : "");
+      // Make sure the last changes reach the server before the token is dropped
+      await Promise.race([runSync(), new Promise((r) => setTimeout(r, 4000))]);
     }
     clearStoredToken();
+    userRef.current = null;
     // Remove from sessions
     try {
       const stored = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "[]");
@@ -5021,8 +5170,8 @@ export default function App() {
   // "?"? Role-based page guards "?"?
   const ROLE_PAGES = {
     admin: ["dashboard","queue","planner","appointments","patients","consultation","vaccination","timeline","certificates","billing","inventory","suppliers","analytics","reminders","system-admin","settings","admin-users","admin-sessions","admin-activity"],
-    doctor: ["dashboard","queue","planner","appointments","patients","consultation","vaccination","timeline","certificates","billing","inventory","suppliers","analytics","reminders","settings"],
-    receptionist: ["dashboard","queue","planner","appointments","patients","consultation","vaccination","timeline","certificates"],
+    doctor: ["dashboard","queue","planner","appointments","patients","consultation","vaccination","timeline","certificates","billing","inventory","suppliers","analytics","reminders"],
+    receptionist: ["dashboard","queue","planner","appointments","patients"],
     owner: ["owner-home","owner-petinfo","owner-book-apt","owner-records","owner-vaccines","owner-appointments","owner-prescriptions"],
   };
 

@@ -1,36 +1,47 @@
-﻿services:
+# Render Blueprint: one web service (Express API + built React app) and one Postgres database.
+services:
   - type: web
-    name: royalpet-backend
-    env: node
-    rootDir: server
-    buildCommand: cd ../client && npm ci && npm run build && cd ../server && npm ci && npm run migrate
-    startCommand: npm start
+    name: royalpet
+    runtime: node
+    region: oregon            # must match the database region so the internal URL works
+    buildCommand: npm --prefix client ci && npm --prefix client run build && npm --prefix server ci
+    # Migrations and the (idempotent) seed run at start, when the private DB network is reachable
+    startCommand: cd server && npm run migrate && npm run seed && npm start
+    healthCheckPath: /api/health
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
         value: 22.12.0
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
       - key: JWT_SECRET
-        sync: false          # Set this manually in Render dashboard — REQUIRED
+        generateValue: true
       - key: JWT_EXPIRES_IN
         value: 1d
-      - key: CORS_ORIGINS
-        sync: false          # Set to your Render URL e.g. https://royalpet-backend.onrender.com
       - key: DATABASE_URL
-        sync: false          # Set to Internal Database URL from your Render PostgreSQL service
+        fromDatabase:
+          name: royalpet-db
+          property: connectionString
       - key: RATE_LIMIT_WINDOW_MS
         value: 900000
       - key: RATE_LIMIT_MAX
-        value: 300
-      - key: ALLOW_BULK_SYNC
-        value: true
+        value: 600
+      # Staff self-registration codes. Leave empty to disable staff sign-up (admin creates accounts instead).
+      - key: DOCTOR_REG_CODE
+        sync: false
+      - key: RECEPTION_REG_CODE
+        sync: false
+      # true = create the public demo logins from the README (doctor/reception/admin/owner).
+      # Set to false and provide ADMIN_EMAIL / ADMIN_PASSWORD for real clinic use.
+      - key: SEED_DEMO_USERS
+        value: "true"
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      # Uploaded images on Render's disk are wiped on every deploy. Use S3/R2 for anything you keep.
       - key: STORAGE_PROVIDER
         value: local
-      - key: STORAGE_PUBLIC_BASE_URL
-        sync: false
       - key: S3_BUCKET
         sync: false
       - key: S3_REGION
@@ -48,5 +59,4 @@ databases:
   - name: royalpet-db
     region: oregon
     databaseName: royalpet
-    plan: starter
-    version: 15
+    plan: basic-256mb
