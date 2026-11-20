@@ -3,6 +3,7 @@ services:
   - type: web
     name: royalpet
     runtime: node
+    plan: starter             # always-on paid instance (the free plan sleeps after 15 min idle)
     region: oregon            # must match the database region so the internal URL works
     buildCommand: npm --prefix client ci && npm --prefix client run build && npm --prefix server ci
     # Migrations and the (idempotent) seed run at start, when the private DB network is reachable
@@ -59,4 +60,4 @@ databases:
   - name: royalpet-db
     region: oregon
     databaseName: royalpet
-    plan: basic-256mb
+    plan: basic-1gb       # 1 GB RAM Postgres (paid). Can be upgraded later in the dashboard.
