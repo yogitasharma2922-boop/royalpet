@@ -1,5 +1,10 @@
 const db = require("../db/knex");
 const logger = require("../config/logger");
+const { serializeRow, getColumnTypes } = require("./tableService");
+
+// How many automatic nightly snapshots to keep (each one is a full copy of the data)
+const KEEP_SCHEDULED = Number(process.env.BACKUP_KEEP_SCHEDULED) || 14;
+const KEEP_PRE_RESTORE = 5;
 
 // All tables to include in every backup snapshot (order matters for restore)
 const BACKUP_TABLES = [
@@ -13,6 +18,8 @@ const BACKUP_TABLES = [
   "vaccinations",
   "inventory",
   "invoices",
+  "supplier_payments",
+  "planner_tasks",
   "activity_log",
 ];
 
@@ -23,17 +30,24 @@ const exportSnapshot = async () => {
   let totalRows = 0;
 
   for (const table of BACKUP_TABLES) {
-    try {
-      const rows = await db(table).select("*");
-      snapshot[table] = rows;
-      totalRows += rows.length;
-    } catch (err) {
-      logger.warn(`[backup] Could not export table ${table}: ${err.message}`);
-      snapshot[table] = [];
-    }
+    // A failed read must stop the backup: a snapshot with a silently empty table would wipe that table on restore
+    const rows = await db(table).select("*");
+    snapshot[table] = rows;
+    totalRows += rows.length;
   }
 
   return { snapshot, totalRows };
+};
+
+// Keep the backup_logs table from growing forever: scheduled and pre-restore copies are rotated
+const pruneBackups = async (trigger) => {
+  const keep = trigger === "scheduled" ? KEEP_SCHEDULED : trigger === "pre-restore" ? KEEP_PRE_RESTORE : 0;
+  if (!keep) return;
+  const old = await db("backup_logs").where("trigger", trigger).orderBy("id", "asc").select("id");
+  if (old.length >= keep) {
+    const toDelete = old.slice(0, old.length - (keep - 1)).map((r) => r.id);
+    await db("backup_logs").whereIn("id", toDelete).delete();
+  }
 };
 
 // ── Save to backup_logs table ─────────────────────────────────────────────
@@ -41,17 +55,7 @@ const exportSnapshot = async () => {
 const saveBackup = async ({ label, trigger = "manual", createdBy = "system" }) => {
   const { snapshot, totalRows } = await exportSnapshot();
 
-  // Keep only the last 30 scheduled backups to avoid bloating the table
-  if (trigger === "scheduled") {
-    const old = await db("backup_logs")
-      .where("trigger", "scheduled")
-      .orderBy("createdAt", "asc")
-      .select("id");
-    if (old.length >= 30) {
-      const toDelete = old.slice(0, old.length - 29).map((r) => r.id);
-      await db("backup_logs").whereIn("id", toDelete).delete();
-    }
-  }
+  await pruneBackups(trigger);
 
   const [row] = await db("backup_logs")
     .insert({
@@ -70,73 +74,112 @@ const saveBackup = async ({ label, trigger = "manual", createdBy = "system" }) =
 
 // ── Restore from a snapshot ───────────────────────────────────────────────
 
-const restoreSnapshot = async (backupId) => {
+/** Check an uploaded or stored snapshot before anything is deleted. Returns the cleaned snapshot. */
+const validateSnapshot = (snapshot) => {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    throw new Error("Invalid backup file: expected an object with one list of rows per table");
+  }
+  const clean = {};
+  let known = 0;
+  for (const table of BACKUP_TABLES) {
+    const rows = snapshot[table];
+    if (rows === undefined) { clean[table] = []; continue; }
+    if (!Array.isArray(rows)) throw new Error(`Invalid backup file: "${table}" must be a list of rows`);
+    if (rows.some((r) => !r || typeof r !== "object" || Array.isArray(r))) {
+      throw new Error(`Invalid backup file: "${table}" contains a row that is not an object`);
+    }
+    clean[table] = rows;
+    known += 1;
+  }
+  if (!known) throw new Error("Invalid backup file: none of the clinic tables were found");
+  const users = clean.users || [];
+  if (!users.some((u) => u && u.role === "admin" && u.active !== false && u.active !== 0)) {
+    throw new Error("This backup has no active admin user, so nobody could log in after restoring. Restore cancelled.");
+  }
+  return clean;
+};
+
+const restoreSnapshot = async (backupId, { createdBy = "system" } = {}) => {
   const record = await db("backup_logs").where({ id: backupId }).first();
   if (!record) throw new Error(`Backup #${backupId} not found`);
 
-  let snapshot;
+  let parsed;
   try {
-    snapshot = typeof record.snapshot === "string"
-      ? JSON.parse(record.snapshot)
-      : record.snapshot;
+    parsed = typeof record.snapshot === "string" ? JSON.parse(record.snapshot) : record.snapshot;
   } catch {
     throw new Error("Backup snapshot is corrupted");
   }
+  const snapshot = validateSnapshot(parsed);
+
+  // Safety net: keep a copy of the current data so a wrong restore can itself be undone
+  const safety = await saveBackup({
+    label: `before-restore-${new Date().toISOString().replace(/[:.]/g, "-")}`,
+    trigger: "pre-restore",
+    createdBy,
+  });
 
   const isPostgres = db.client.config.client === "pg";
 
+  // Column info must be loaded before the transaction (single-connection sqlite would deadlock otherwise)
+  await Promise.all(BACKUP_TABLES.map((t) => getColumnTypes(t)));
+  const prepared = {};
+  for (const table of BACKUP_TABLES) {
+    prepared[table] = [];
+    for (const row of snapshot[table]) prepared[table].push(await serializeRow(table, row));
+  }
+
   await db.transaction(async (trx) => {
     // Disable FK checks for the duration of the restore
-    if (isPostgres) {
-      await trx.raw("SET session_replication_role = replica");
-    }
+    if (isPostgres) await trx.raw("SET LOCAL session_replication_role = replica");
 
     // Clear tables in reverse order (children before parents)
-    const reversed = [...BACKUP_TABLES].reverse();
-    for (const table of reversed) {
-      try {
-        await trx(table).del();
-      } catch (err) {
-        logger.warn(`[restore] Could not clear ${table}: ${err.message}`);
-      }
+    for (const table of [...BACKUP_TABLES].reverse()) {
+      await trx(table).del();
     }
 
     // Re-insert in dependency order
     for (const table of BACKUP_TABLES) {
-      const rows = snapshot[table];
-      if (!Array.isArray(rows) || !rows.length) continue;
+      const rows = prepared[table];
+      if (!rows.length) continue;
+      const cols = Math.max(1, ...rows.slice(0, 50).map((r) => Object.keys(r).length));
+      const chunk = Math.max(1, Math.min(100, Math.floor(900 / cols)));
       try {
-        // Insert in chunks of 100 to avoid parameter limits
-        for (let i = 0; i < rows.length; i += 100) {
-          await trx(table).insert(rows.slice(i, i + 100));
+        for (let i = 0; i < rows.length; i += chunk) {
+          await trx(table).insert(rows.slice(i, i + chunk));
         }
       } catch (err) {
         logger.error(`[restore] Failed to restore ${table}: ${err.message}`);
-        throw err;
+        throw new Error(`Restore failed on table "${table}": ${err.message}. Nothing was changed.`);
       }
     }
 
-    // Re-enable FK checks and reset sequences
     if (isPostgres) {
-      await trx.raw("SET session_replication_role = DEFAULT");
       for (const table of BACKUP_TABLES) {
-        try {
-          await trx.raw(`
-            SELECT setval(
-              pg_get_serial_sequence('${table}', 'id'),
-              COALESCE((SELECT MAX(id) FROM "${table}"), 0) + 1,
-              false
-            )
-          `);
-        } catch {
-          // Table might not have a serial id — skip silently
-        }
+        await trx.raw(
+          `SELECT setval(pg_get_serial_sequence('"${table}"', 'id'), COALESCE((SELECT MAX(id) FROM "${table}"), 0) + 1, false)`
+        ).catch(() => {});
       }
     }
   });
 
-  logger.info(`[restore] Restored backup #${backupId} "${record.label}"`);
-  return { restored: record.label, rowCount: record.rowCount };
+  logger.info(`[restore] Restored backup #${backupId} "${record.label}" (safety copy #${safety.id})`);
+  return { restored: record.label, rowCount: record.rowCount, safetyBackupId: safety.id };
+};
+
+/** Store an uploaded JSON snapshot as a backup entry (does not restore it). */
+const importSnapshot = async (snapshot, { createdBy = "admin", label } = {}) => {
+  const clean = validateSnapshot(snapshot);
+  const rowCount = BACKUP_TABLES.reduce((n, t) => n + clean[t].length, 0);
+  const [row] = await db("backup_logs")
+    .insert({
+      label: label || `uploaded-${new Date().toISOString().split("T")[0]}`,
+      trigger: "upload",
+      createdBy,
+      rowCount,
+      snapshot: JSON.stringify(clean),
+    })
+    .returning("id");
+  return row?.id ?? row;
 };
 
 // ── List backups ──────────────────────────────────────────────────────────
@@ -179,4 +222,4 @@ const startScheduler = () => {
   logger.info("[backup] Nightly backup scheduler started (runs at 02:00 AM daily)");
 };
 
-module.exports = { exportSnapshot, saveBackup, restoreSnapshot, listBackups, startScheduler };
+module.exports = { BACKUP_TABLES, exportSnapshot, saveBackup, restoreSnapshot, importSnapshot, validateSnapshot, listBackups, startScheduler };

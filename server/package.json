@@ -8,6 +8,8 @@
     "dev": "nodemon src/server.js",
     "migrate": "knex migrate:latest --knexfile knexfile.js",
     "seed": "knex seed:run --knexfile knexfile.js",
+    "backup:export": "node scripts/backup-export.js",
+    "backup:restore": "node scripts/backup-restore.js",
     "reset-db": "knex migrate:rollback --all --knexfile knexfile.js && npm run migrate && npm run seed",
     "test": "cross-env NODE_ENV=test JWT_SECRET=test-secret jest --runInBand --forceExit"
   },

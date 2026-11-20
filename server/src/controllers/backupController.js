@@ -1,66 +1,77 @@
+const db = require("../db/knex");
 const ApiError = require("../utils/ApiError");
 const { sendSuccess } = require("../utils/apiResponse");
-const { saveBackup, restoreSnapshot, listBackups, exportSnapshot } = require("../services/backupService");
+const {
+  saveBackup,
+  restoreSnapshot,
+  importSnapshot,
+  listBackups,
+  exportSnapshot,
+} = require("../services/backupService");
 
-// GET /api/admin/backups — list all saved backups
+const who = (req) => req.user?.email || req.user?.name || "admin";
+const today = () => new Date().toISOString().split("T")[0];
+
+// GET /api/admin/backups - list all saved backups
 const getBackups = async (req, res) => {
   const backups = await listBackups();
   return sendSuccess(res, backups);
 };
 
-// POST /api/admin/backups — trigger a manual backup
+// POST /api/admin/backups - trigger a manual backup
 const createBackup = async (req, res) => {
-  const label = req.body?.label || `manual-${new Date().toISOString().split("T")[0]}`;
-  const result = await saveBackup({
-    label,
-    trigger: "manual",
-    createdBy: req.user?.email || req.user?.name || "admin",
-  });
+  const label = String(req.body?.label || `manual-${today()}`).slice(0, 120);
+  const result = await saveBackup({ label, trigger: "manual", createdBy: who(req) });
   return sendSuccess(res, result, "Backup created", 201);
 };
 
-// POST /api/admin/backups/:id/restore — restore from a saved backup
+// POST /api/admin/backups/:id/restore - restore from a saved backup
 const restoreBackup = async (req, res) => {
   const id = Number(req.params.id);
   if (!id) throw new ApiError(400, "Invalid backup ID");
-  const result = await restoreSnapshot(id);
-  return sendSuccess(res, result, "Database restored successfully");
+  try {
+    const result = await restoreSnapshot(id, { createdBy: who(req) });
+    return sendSuccess(res, result, "Database restored successfully");
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(/not found/i.test(err.message) ? 404 : 400, err.message);
+  }
 };
 
-// GET /api/admin/backups/download — download full snapshot as JSON file
+// GET /api/admin/backups/download - download the current data as a JSON file
 const downloadBackup = async (req, res) => {
   const { snapshot, totalRows } = await exportSnapshot();
-  const filename = `royalpet-backup-${new Date().toISOString().split("T")[0]}.json`;
   res.setHeader("Content-Type", "application/json");
-  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-  res.send(JSON.stringify({ exportedAt: new Date().toISOString(), totalRows, snapshot }, null, 2));
+  res.setHeader("Content-Disposition", `attachment; filename="royalpet-backup-${today()}.json"`);
+  res.send(JSON.stringify({ exportedAt: new Date().toISOString(), totalRows, snapshot }));
 };
 
-// POST /api/admin/backups/restore-upload — restore from uploaded JSON file
+// GET /api/admin/backups/:id/download - download one saved backup as a JSON file
+const downloadSavedBackup = async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) throw new ApiError(400, "Invalid backup ID");
+  const record = await db("backup_logs").where({ id }).first();
+  if (!record) throw new ApiError(404, `Backup #${id} not found`);
+  const snapshot = typeof record.snapshot === "string" ? JSON.parse(record.snapshot) : record.snapshot;
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Disposition", `attachment; filename="royalpet-backup-${id}-${today()}.json"`);
+  res.send(JSON.stringify({ exportedAt: record.createdAt, totalRows: record.rowCount, snapshot }));
+};
+
+// POST /api/admin/backups/restore-upload - restore from an uploaded JSON file ({ snapshot } or the downloaded file itself)
 const restoreFromUpload = async (req, res) => {
-  const { snapshot } = req.body || {};
+  const snapshot = req.body?.snapshot;
   if (!snapshot || typeof snapshot !== "object") {
-    throw new ApiError(400, "Invalid backup payload — expected { snapshot: {...} }");
+    throw new ApiError(400, "Invalid backup file: expected { snapshot: {...} }");
   }
-
-  // Save it as a new backup log first
-  const { saveBackup: save, restoreSnapshot: doRestore } = require("../services/backupService");
-  const db = require("../db/knex");
-
-  // Save the uploaded snapshot to backup_logs
-  const [row] = await db("backup_logs")
-    .insert({
-      label: `uploaded-${new Date().toISOString().split("T")[0]}`,
-      trigger: "upload",
-      createdBy: req.user?.email || "admin",
-      rowCount: Object.values(snapshot).reduce((s, rows) => s + (Array.isArray(rows) ? rows.length : 0), 0),
-      snapshot: JSON.stringify(snapshot),
-    })
-    .returning("id");
-
-  const id = row?.id ?? row;
-  const result = await doRestore(id);
-  return sendSuccess(res, result, "Database restored from uploaded file");
+  try {
+    const id = await importSnapshot(snapshot, { createdBy: who(req) });
+    const result = await restoreSnapshot(id, { createdBy: who(req) });
+    return sendSuccess(res, result, "Database restored from uploaded file");
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(400, err.message);
+  }
 };
 
-module.exports = { getBackups, createBackup, restoreBackup, downloadBackup, restoreFromUpload };
+module.exports = { getBackups, createBackup, restoreBackup, downloadBackup, downloadSavedBackup, restoreFromUpload };

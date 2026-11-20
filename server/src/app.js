@@ -33,7 +33,7 @@ app.use(securityMiddleware);
 app.use(requestLogger);
 app.use(apiLimiter);
 app.use(express.text({ type: ["text/*", "application/csv"], limit: "5mb" }));
-app.use(express.json({ limit: "10mb" })); // Increased for backup restore payloads
+app.use(express.json({ limit: "50mb" })); // large enough for a full backup file upload
 app.use(express.urlencoded({ extended: false }));
 
 app.use("/uploads", express.static(env.UPLOAD_DIR));

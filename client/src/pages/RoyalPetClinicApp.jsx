@@ -254,6 +254,24 @@ const apiRequest = async (path, options = {}, tokenOverride) => {
 
   return payload?.data ?? payload;
 };
+const downloadApiFile = async (path, fallbackName) => {
+  const token = getStoredToken();
+  const res = await fetch(`${API_BASE_URL}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({}));
+    throw new Error(payload?.error?.message || "Download failed");
+  }
+  const blob = await res.blob();
+  const match = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "");
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = match ? match[1] : fallbackName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
 // ctx shape: { db, saveDB, toast, logActivity, user }
 
 // "?"?"? Mock DB (localStorage-backed) "?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?
@@ -1886,7 +1904,7 @@ function PatientsPage({ setPage, setConsultVisit, onAddVaccine }) {
     setForm({ ownerName: "", mobile: "", email: "", address: "", petName: "", type: "Dog", breed: "", dob: "", sex: "Male", weight: "" });
   };
 
-  if (selected) return <PetProfile pet={selected} onBack={() => setSelected(null)} setPage={setPage} setConsultVisit={setConsultVisit} />;
+  if (selected) return <PetProfile pet={selected} onBack={() => setSelected(null)} setPage={setPage} setConsultVisit={setConsultVisit} onAddVaccine={onAddVaccine} />;
 
   return (
     <div className="fu">
@@ -1962,8 +1980,9 @@ function PatientsPage({ setPage, setConsultVisit, onAddVaccine }) {
   );
 }
 
-function PetProfile({ pet, onBack, setPage, setConsultVisit }) {
-  const { db, saveDB, toast } = useApp();
+function PetProfile({ pet, onBack, setPage, setConsultVisit, onAddVaccine }) {
+  const { db, saveDB, toast, user } = useApp();
+  const isFrontDesk = user && user.role === "receptionist"; // front desk sees owners and pets only, never clinical records
   const owner = db.owners.find(o => o.id === pet.ownerId);
   const visits = db.visits.filter(v => v.petId === pet.id).sort((a, b) => new Date(b.date) - new Date(a.date));
   const vaccs = db.vaccinations.filter(v => v.petId === pet.id);
@@ -3784,6 +3803,110 @@ function RemindersPage() {
     </div>
   );
 }
+function BackupPanel() {
+  const { toast, reloadFromServer, flushSync } = useApp();
+  const [backups, setBackups] = useState([]);
+  const [busy, setBusy] = useState("");
+  const [label, setLabel] = useState("");
+  const fileRef = useRef(null);
+
+  const load = async () => {
+    try { setBackups(await apiRequest("/admin/backups")); }
+    catch (e) { toast(e.message || "Could not load backups", "error"); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const run = async (name, fn) => {
+    setBusy(name);
+    try { await fn(); } catch (e) { toast(e.message || "Something went wrong", "error"); }
+    setBusy("");
+  };
+
+  const createBackup = () => run("create", async () => {
+    await flushSync();
+    await apiRequest("/admin/backups", { method: "POST", body: JSON.stringify({ label: label.trim() || undefined }) });
+    setLabel("");
+    await load();
+    toast("Backup saved.", "success");
+  });
+
+  const download = (path, name) => run("download", async () => {
+    await flushSync();
+    await downloadApiFile(path, name);
+  });
+
+  const afterRestore = async (result) => {
+    await reloadFromServer();
+    await load();
+    toast(`Restored "${result.restored}". Your previous data was kept as backup #${result.safetyBackupId}.`, "success");
+  };
+
+  const restoreSaved = (b) => {
+    if (!window.confirm(`Restore backup "${b.label}" (${b.rowCount} records)?\n\nAll current data will be replaced by this backup. A copy of the current data is saved first, so you can undo this.`)) return;
+    run("restore", async () => {
+      await flushSync();
+      await afterRestore(await apiRequest(`/admin/backups/${b.id}/restore`, { method: "POST" }));
+    });
+  };
+
+  const restoreFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    run("restore", async () => {
+      let parsed;
+      try { parsed = JSON.parse(await file.text()); } catch { throw new Error("This file is not a valid backup (.json) file."); }
+      const snapshot = parsed && parsed.snapshot ? parsed.snapshot : parsed;
+      const counts = Object.entries(snapshot || {}).filter(([, v]) => Array.isArray(v)).map(([k, v]) => `${k}: ${v.length}`).join(", ");
+      if (!counts) throw new Error("This file does not look like a RoyalPet backup.");
+      if (!window.confirm(`Restore from "${file.name}"?\n\n${counts}\n\nAll current data will be replaced. A copy of the current data is saved first, so you can undo this.`)) return;
+      await flushSync();
+      await afterRestore(await apiRequest("/admin/backups/restore-upload", { method: "POST", body: JSON.stringify({ snapshot }) }));
+    });
+  };
+
+  const typeBadge = (t) => (t === "scheduled" ? "Nightly" : t === "pre-restore" ? "Before restore" : t === "upload" ? "Uploaded" : "Manual");
+
+  return (
+    <div>
+      <div className="alert a-info" style={{ marginBottom: 16 }}>
+        💾 A backup is saved automatically every night at 2:00 AM (the last 14 are kept). Download a copy to your own computer now and then, so your data is safe even if the server is lost.
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
+        <input className="inp" style={{ maxWidth: 240 }} placeholder="Backup name (optional)" value={label} onChange={(e) => setLabel(e.target.value)} />
+        <button className="btn btn-ink btn-sm" disabled={!!busy} onClick={createBackup}>{busy === "create" ? "Saving..." : "➕ Backup now"}</button>
+        <button className="btn btn-ghost btn-sm" disabled={!!busy} onClick={() => download("/admin/backups/download", "royalpet-backup.json")}>⬇️ Download current data</button>
+        <button className="btn btn-ghost btn-sm" disabled={!!busy} onClick={() => fileRef.current && fileRef.current.click()}>⬆️ Restore from file</button>
+        <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }} onChange={restoreFile} />
+      </div>
+      <div className="tbl-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Name</th><th>Type</th><th>Records</th><th>Created</th><th>Action</th></tr></thead>
+          <tbody>
+            {backups.length === 0 && <tr><td colSpan={6} style={{ textAlign: "center", color: "var(--txt3)", padding: 20 }}>No backups yet.</td></tr>}
+            {backups.map((b) => (
+              <tr key={b.id}>
+                <td>{b.id}</td>
+                <td style={{ fontWeight: 600 }}>{b.label}</td>
+                <td><span className="badge b-info">{typeBadge(b.trigger)}</span></td>
+                <td>{b.rowCount ?? "-"}</td>
+                <td style={{ fontSize: 12 }}>{fmtLogTime(b.createdAt)}</td>
+                <td><div style={{ display: "flex", gap: 6 }}>
+                  <button className="btn btn-ghost btn-xs" disabled={!!busy} onClick={() => download(`/admin/backups/${b.id}/download`, `royalpet-backup-${b.id}.json`)}>⬇️ Download</button>
+                  <button className="btn btn-ghost btn-xs" style={{ color: "var(--red)" }} disabled={!!busy} onClick={() => restoreSaved(b)}>↩️ Restore</button>
+                </div></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 12, color: "var(--txt3)", marginTop: 12 }}>
+        Backup files contain patient, owner and staff data (including password hashes). Keep downloaded files private.
+      </div>
+    </div>
+  );
+}
+
 function SettingsPage() {
   const { db, saveDB, toast, user } = useApp();
   const [settings, setSettings] = useState({ ...db.clinicSettings });
@@ -3813,13 +3936,13 @@ function SettingsPage() {
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 20 }}>
         <div className="card" style={{ alignSelf: "start" }}>
-          {["clinic", "doctor", "billing", "reminders", "users", "security"].map((s, i) => {
-            const labels = { clinic: "Clinic Profile", doctor: "Doctor Info", billing: "Billing Settings", reminders: "Reminder Config", users: "Users & Roles", security: "Security" };
+          {["clinic", "doctor", "billing", "reminders", "users", "backup", "security"].map((s, i) => {
+            const labels = { clinic: "Clinic Profile", doctor: "Doctor Info", billing: "Billing Settings", reminders: "Reminder Config", users: "Users & Roles", backup: "Backup & Restore", security: "Security" };
             return <div key={s} onClick={() => setTab(s)} style={{ padding: "12px 16px", cursor: "pointer", fontSize: 13, fontWeight: 600, background: tab === s ? "var(--gold-pale)" : "transparent", borderLeft: tab === s ? "3px solid var(--gold)" : "3px solid transparent", color: tab === s ? "var(--gold-dim)" : "var(--txt)", transition: "all .18s" }}>{labels[s]}</div>;
           })}
         </div>
         <div className="card">
-          <div className="card-head"><span className="card-title">{tab === "clinic" ? "Clinic Profile" : tab === "doctor" ? "Doctor Info" : tab === "billing" ? "Billing" : tab === "reminders" ? "Reminders" : tab === "users" ? "Users" : "Security"}</span></div>
+          <div className="card-head"><span className="card-title">{tab === "clinic" ? "Clinic Profile" : tab === "doctor" ? "Doctor Info" : tab === "billing" ? "Billing" : tab === "reminders" ? "Reminders" : tab === "users" ? "Users" : tab === "backup" ? "Backup & Restore" : "Security"}</span></div>
           <div className="card-body">
             {tab === "clinic" && (
               <>
@@ -3939,6 +4062,7 @@ function SettingsPage() {
                 </div>
               </div>
             )}
+            {tab === "backup" && <BackupPanel />}
             {tab === "security" && (
               <div>
                 <div className="alert a-info" style={{ marginBottom: 16 }}>🔒 Manage password, session timeouts, and access controls.</div>
@@ -3966,7 +4090,7 @@ function SettingsPage() {
                 </div>
               </div>
             )}
-            {(tab !== "users") && (
+            {(tab !== "users" && tab !== "backup") && (
               <div style={{ marginTop: 20, display: "flex", gap: 10, borderTop: "1px solid var(--bdr2)", paddingTop: 16 }}>
                 <button className="btn btn-ink" onClick={save}>💾 Save Changes</button>
                 <button className="btn btn-ghost" onClick={() => setSettings({ ...db.clinicSettings })}>↺ Reset</button>
@@ -5239,7 +5363,26 @@ export default function App() {
     }
   };
 
-  const ctx = { db, saveDB, toast, logActivity, user, createAppointment };
+  // Wait until everything typed so far has reached the server
+  const flushSync = async () => {
+    const ok = await runSync();
+    if (ok === false) throw new Error("Some recent changes could not be saved yet. Check your connection and try again.");
+  };
+  // Replace the local copy with what the server holds (used after a restore)
+  const reloadFromServer = async () => {
+    try {
+      const fresh = normalizeDbSnapshot(await apiRequest("/bootstrap"));
+      markAllSynced(fresh);
+      dbRef.current = fresh;
+      localStorage.setItem(DB_KEY, JSON.stringify(fresh));
+      setDB(fresh);
+    } catch (err) {
+      // The restored data may not contain this login any more
+      if (err.status === 401) { await logout(true); return; }
+      throw err;
+    }
+  };
+  const ctx = { db, saveDB, toast, logActivity, user, createAppointment, flushSync, reloadFromServer };
 
   return (
     <AppCtx.Provider value={ctx}>
