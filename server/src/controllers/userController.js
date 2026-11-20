@@ -1,4 +1,4 @@
-﻿const bcrypt = require("bcrypt");
+const bcrypt = require("bcrypt");
 const db = require("../db/knex");
 const { hasOwnerIdColumn } = require("../services/ownerContextService");
 const { insertWithId } = require("../services/tableService");
@@ -31,6 +31,7 @@ const createUser = async (req, res) => {
   };
 
   let userId;
+  await hasOwnerIdColumn(); // warm the cache before the transaction (single-connection pools deadlock otherwise)
   await db.transaction(async (trx) => {
     userId = await insertWithId("users", userPayload, trx);
     if (safeRole === "owner" && await hasOwnerIdColumn()) {
@@ -51,6 +52,9 @@ const updateUser = async (req, res) => {
 
   const existing = await db("users").where({ email }).andWhereNot({ id }).first();
   if (existing) throw new ApiError(409, "Email already exists");
+  if (id === req.user.id && (active === false || (role && role !== "admin"))) {
+    throw new ApiError(400, "You cannot deactivate or demote your own admin account");
+  }
 
   const allowedRoles = ["owner", "doctor", "receptionist", "admin"];
   const safeRole = allowedRoles.includes(role) ? role : "doctor";
@@ -64,6 +68,7 @@ const updateUser = async (req, res) => {
   };
   if (password) updatePayload.password = await bcrypt.hash(password, 10);
 
+  await hasOwnerIdColumn(); // warm the cache before the transaction (single-connection pools deadlock otherwise)
   await db.transaction(async (trx) => {
     await trx("users").where({ id }).update(updatePayload);
     if (safeRole === "owner" && await hasOwnerIdColumn()) {

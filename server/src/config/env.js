@@ -1,4 +1,4 @@
-﻿const path = require("path");
+const path = require("path");
 const dotenv = require("dotenv");
 
 const NODE_ENV = process.env.NODE_ENV || "development";
@@ -17,6 +17,9 @@ const theEnv = {
   RATE_LIMIT_MAX: Number(process.env.RATE_LIMIT_MAX || 300),
   LOG_LEVEL: process.env.LOG_LEVEL || (isProd ? "info" : "debug"),
   UPLOAD_DIR: process.env.UPLOAD_DIR || path.resolve(__dirname, "..", "uploads"),
+  // Registration codes for staff self-signup. Leave empty in production to disable staff self-registration.
+  DOCTOR_REG_CODE: process.env.DOCTOR_REG_CODE || (isProd ? "" : "RPC-DOC-2026"),
+  RECEPTION_REG_CODE: process.env.RECEPTION_REG_CODE || (isProd ? "" : "RPC-REC-2026"),
   ALLOW_BULK_SYNC: process.env.ALLOW_BULK_SYNC === "true",
   STORAGE_PROVIDER: process.env.STORAGE_PROVIDER || "local",
   STORAGE_PUBLIC_BASE_URL: process.env.STORAGE_PUBLIC_BASE_URL || "",

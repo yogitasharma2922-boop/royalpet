@@ -1,18 +1,23 @@
 require("dotenv").config();
 const path = require("path");
+const fs = require("fs");
 
 const { DATABASE_URL, SQLITE_FILE, NODE_ENV } = process.env;
 const defaultSqlite = path.resolve(__dirname, "data", "royalpet.db");
 
 function pgConnection(url) {
+  // Render's managed Postgres needs SSL; set DATABASE_SSL=false for a local/plain Postgres.
+  const useSsl = process.env.DATABASE_SSL !== "false";
   return {
     connectionString: url,
-    ssl: { rejectUnauthorized: false },
+    ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
   };
 }
 
 function sqliteConnection() {
-  return { filename: SQLITE_FILE || defaultSqlite };
+  const filename = SQLITE_FILE || defaultSqlite;
+  fs.mkdirSync(path.dirname(path.resolve(filename)), { recursive: true });
+  return { filename };
 }
 
 // Only used in production — safe to call lazily
@@ -37,7 +42,14 @@ module.exports = {
     seeds:      { directory: "./seeds" },
   },
 
-  test: {
+  // Tests run on in-memory sqlite by default. Set TEST_DATABASE_URL to run the same
+  // suite against a real Postgres (what production uses).
+  test: process.env.TEST_DATABASE_URL ? {
+    client: "pg",
+    connection: { connectionString: process.env.TEST_DATABASE_URL },
+    migrations: { directory: "./migrations" },
+    seeds:      { directory: "./seeds" },
+  } : {
     client: "sqlite3",
     connection: { filename: ":memory:" },
     useNullAsDefault: true,

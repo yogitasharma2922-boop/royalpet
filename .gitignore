@@ -29,6 +29,11 @@ Thumbs.db
 logs/
 *.log
 
+# Uploads and local databases
+server/uploads/
+server/src/uploads/
+server/data/
+
 # Database
 *.db
 *.sqlite

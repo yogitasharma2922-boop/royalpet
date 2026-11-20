@@ -1,8 +1,8 @@
-﻿const db = require("../db/knex");
+const db = require("../db/knex");
 const ApiError = require("../utils/ApiError");
 const { sendSuccess } = require("../utils/apiResponse");
 const { loadOwnerContext } = require("../services/ownerContextService");
-const { insertWithId } = require("../services/tableService");
+const { insertWithId, deserializeRow, deserializeRows } = require("../services/tableService");
 
 const listPets = async (req, res) => {
   let query = db("pets").leftJoin("owners", "pets.ownerId", "owners.id")
@@ -15,7 +15,7 @@ const listPets = async (req, res) => {
   }
   
   const results = await query;
-  return sendSuccess(res, results);
+  return sendSuccess(res, deserializeRows("pets", results));
 };
 
 const getPet = async (req, res) => {
@@ -28,7 +28,7 @@ const getPet = async (req, res) => {
   }
   
   const owner = pet.ownerId ? await db("owners").where({ id: pet.ownerId }).first() : null;
-  return sendSuccess(res, { ...pet, owner });
+  return sendSuccess(res, { ...deserializeRow("pets", pet), owner });
 };
 
 const createPet = async (req, res) => {
@@ -52,7 +52,7 @@ const createPet = async (req, res) => {
   });
   
   const pet = await db("pets").where({ id }).first();
-  return sendSuccess(res, pet, "Pet created", 201);
+  return sendSuccess(res, deserializeRow("pets", pet), "Pet created", 201);
 };
 
 const updatePet = async (req, res) => {
@@ -79,7 +79,7 @@ const updatePet = async (req, res) => {
   });
   
   const pet = await db("pets").where({ id: req.params.id }).first();
-  return sendSuccess(res, pet, "Pet updated");
+  return sendSuccess(res, deserializeRow("pets", pet), "Pet updated");
 };
 
 const deletePet = async (req, res) => {
@@ -94,6 +94,8 @@ const deletePet = async (req, res) => {
   await db("pets").where({ id: req.params.id }).delete();
   return sendSuccess(res, { id: req.params.id }, "Pet deleted");
 };
+
+const LIKE = db.client.config.client === "pg" ? "ilike" : "like";
 
 const searchPets = async (req, res) => {
   const q = String(req.query.q || "").trim();
@@ -112,22 +114,22 @@ const searchPets = async (req, res) => {
     query.where("pets.ownerId", ctx.ownerId);
   }
 
-  if (petId) query.where("pets.id", petId);
-  if (name) query.whereRaw("pets.name LIKE ?", [`%${name}%`]);
-  if (owner) query.whereRaw("owners.name LIKE ?", [`%${owner}%`]);
-  if (phone) query.whereRaw("owners.mobile LIKE ?", [`%${phone}%`]);
+  if (/^\d+$/.test(petId)) query.where("pets.id", petId);
+  if (name) query.where("pets.name", LIKE, `%${name}%`);
+  if (owner) query.where("owners.name", LIKE, `%${owner}%`);
+  if (phone) query.where("owners.mobile", LIKE, `%${phone}%`);
   if (q) {
     query.where((builder) => {
       builder
-        .where("pets.id", q)
-        .orWhere("pets.name", "like", `%${q}%`)
-        .orWhere("owners.name", "like", `%${q}%`)
-        .orWhere("owners.mobile", "like", `%${q}%`);
+        .where("pets.name", LIKE, `%${q}%`)
+        .orWhere("owners.name", LIKE, `%${q}%`)
+        .orWhere("owners.mobile", LIKE, `%${q}%`);
+      if (/^\d+$/.test(q)) builder.orWhere("pets.id", q);
     });
   }
 
   const results = await query;
-  return sendSuccess(res, results);
+  return sendSuccess(res, deserializeRows("pets", results));
 };
 
 module.exports = { listPets, getPet, createPet, updatePet, deletePet, searchPets };

@@ -9,7 +9,7 @@ const listInventory = async (req, res) => {
   let query = db("inventory");
   
   if (category) query.where("category", category);
-  if (lowStock === "true") query.whereRaw("stock <= minStock");
+  if (lowStock === "true") query.whereRaw("?? <= ??", ["stock", "minStock"]);
   
   const results = await query.orderBy("category");
   return sendSuccess(res, results);

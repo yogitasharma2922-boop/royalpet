@@ -9,7 +9,9 @@ process.env.JWT_SECRET = "test-secret";
 let doctorToken, adminToken, receptionToken, ownerToken;
 
 const setupDatabase = async () => {
-  await db.migrate.latest();\n  await db.seed.run();\n};
+  await db.migrate.latest();
+  await db.seed.run();
+};
 
 const loginUser = async (email, password) => {
   const res = await request(app).post("/api/auth/login").send({ email, password });

@@ -20,10 +20,14 @@ const healthRoutes = require("./routes/healthRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const backupRoutes = require("./routes/backupRoutes");
 const csvImportRoutes = require("./routes/csvImportRoutes");
+const syncRoutes = require("./routes/syncRoutes");
 
 const { startScheduler } = require("./services/backupService");
 
 const app = express();
+
+// Render (and most hosts) sit behind a reverse proxy; needed for correct client IPs / rate limiting
+app.set("trust proxy", 1);
 
 app.use(securityMiddleware);
 app.use(requestLogger);
@@ -42,6 +46,7 @@ app.use("/api/treatments", treatmentRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/pets", petRoutes);
 app.use("/api/uploads", uploadRoutes);
+app.use("/api/sync", syncRoutes);
 app.use("/api/admin", backupRoutes);       // /api/admin/backups
 app.use("/api/import", csvImportRoutes);   // /api/import/pets-owners etc.
 app.use("/api", adminRoutes);
@@ -54,6 +59,7 @@ const hasClient = fs.existsSync(clientIndex);
 
 if (hasClient) {
   app.use(express.static(clientDist));
+  app.use("/api", (_req, res) => res.status(404).json({ success: false, error: { message: "Not found" } }));
   app.get("*", (_req, res) => {
     res.sendFile(clientIndex);
   });
